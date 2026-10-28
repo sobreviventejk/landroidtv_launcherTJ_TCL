@@ -9,7 +9,6 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.GridLayoutManager
@@ -110,7 +109,7 @@ class AppSelectionActivity : AppCompatActivity() {
     }
 
     private fun updateCountBadge() {
-        selectedCountBadge.text = getString(R.string.selected_badge, selectedApps.size, AppManager.MAX_SLOTS)
+        selectedCountBadge.text = getString(R.string.selected_badge, selectedApps.size)
     }
 
     private fun setupSearch() {
@@ -148,15 +147,6 @@ class AppSelectionActivity : AppCompatActivity() {
     private fun onSelectionChanged(appIdentifier: String, isSelected: Boolean) {
         val normalized = AppIdentifier.normalize(appIdentifier)
         if (isSelected) {
-            if (!appManager.canAddMoreSelections(selectedApps.size) && !selectedApps.contains(normalized)) {
-                Toast.makeText(
-                    this,
-                    getString(R.string.slot_limit_reached, AppManager.MAX_SLOTS),
-                    Toast.LENGTH_SHORT
-                ).show()
-                appSelectionAdapter.updateSelectionState()
-                return
-            }
             selectedApps.add(normalized)
         } else {
             selectedApps.remove(normalized)
@@ -194,17 +184,9 @@ class AppSelectionActivity : AppCompatActivity() {
             return
         }
         if (!selectedApps.contains(autoSelectId)) {
-            if (!appManager.canAddMoreSelections(selectedApps.size)) {
-                Toast.makeText(
-                    this,
-                    getString(R.string.slot_limit_reached, AppManager.MAX_SLOTS),
-                    Toast.LENGTH_LONG
-                ).show()
-            } else {
-                selectedApps.add(autoSelectId)
-                updateCountBadge()
-                appSelectionAdapter.updateSelectionState()
-            }
+            selectedApps.add(autoSelectId)
+            updateCountBadge()
+            appSelectionAdapter.updateSelectionState()
         }
         pendingAutoSelectId = null
     }

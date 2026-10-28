@@ -76,6 +76,17 @@
         app:layout_constraintTop_toTopOf="parent">
 
         <ImageButton
+            android:id="@+id/customizeButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:layout_marginEnd="12dp"
+            android:background="@drawable/header_button_background"
+            android:clickable="true"
+            android:contentDescription="@string/customize_title"
+            android:focusable="true"
+            android:src="@drawable/ic_tune" />
+
+        <ImageButton
             android:id="@+id/wallpaperButton"
             android:layout_width="44dp"
             android:layout_height="44dp"
@@ -105,10 +116,10 @@
         android:layout_marginStart="24dp"
         android:layout_marginTop="24dp"
         android:layout_marginEnd="24dp"
-        android:layout_marginBottom="24dp"
+        android:layout_marginBottom="8dp"
         android:clipToPadding="false"
         android:padding="8dp"
-        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintBottom_toTopOf="@+id/aboutButton"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/clockContainer"

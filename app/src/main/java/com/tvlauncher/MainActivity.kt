@@ -7,10 +7,15 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.InputFilter
+import android.text.InputType
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -20,23 +25,33 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.doOnLayout
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.SimpleItemAnimator
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var appSlots: RecyclerView
     private lateinit var settingsButton: ImageButton
     private lateinit var wallpaperButton: ImageButton
+    private lateinit var customizeButton: ImageButton
     private lateinit var aboutButton: View
     private lateinit var wallpaperImageView: ImageView
     private lateinit var wallpaperDimOverlay: View
     private lateinit var appManager: AppManager
+    private lateinit var layoutPrefs: LayoutPrefs
     private lateinit var appSlotAdapter: AppSlotAdapter
-    private var lastFocusedPosition: Int = 0
+    private lateinit var gridLayoutManager: GridLayoutManager
 
-    /** Increased bitmap size for crisp rounded icons. */
-    private val slotIconSizePx: Int by lazy { (72 * resources.displayMetrics.density).toInt() }
+    /** Key (see AppSlotAdapter.AppSlot.key) of the tile that had focus last. */
+    private var lastFocusedKey: String? = null
+
+    /** Apps on the home screen by app identifier, as loaded from the system. */
+    private var infoById: Map<String, AppInfo> = emptyMap()
+
+    /** Identifier of the app being moved with the remote (reorder mode), or null. */
+    private var reorderingId: String? = null
 
     private val refreshReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -57,11 +72,13 @@ class MainActivity : AppCompatActivity() {
         appSlots = findViewById(R.id.appSlots)
         settingsButton = findViewById(R.id.settingsButton)
         wallpaperButton = findViewById(R.id.wallpaperButton)
+        customizeButton = findViewById(R.id.customizeButton)
         aboutButton = findViewById(R.id.aboutButton)
         wallpaperImageView = findViewById(R.id.wallpaperImageView)
         wallpaperDimOverlay = findViewById(R.id.wallpaperDimOverlay)
 
         appManager = AppManager(this)
+        layoutPrefs = LayoutPrefs(this)
         setupRecyclerView()
         setupClickListeners()
         loadAppSlots()
@@ -85,32 +102,83 @@ class MainActivity : AppCompatActivity() {
         return super.onKeyDown(keyCode, event)
     }
 
+    /**
+     * While an app is being reordered, the arrow keys move it instead of moving the focus,
+     * and OK / Back finish the move. Both key down and key up are consumed so that OK does not
+     * also click the tile.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (reorderingId != null) {
+            val isDown = event.action == KeyEvent.ACTION_DOWN
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                    if (isDown) moveReorderingApp(-1, vertical = false)
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                    if (isDown) moveReorderingApp(1, vertical = false)
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    if (isDown) moveReorderingApp(-1, vertical = true)
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    if (isDown) moveReorderingApp(1, vertical = true)
+                    return true
+                }
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_NUMPAD_ENTER,
+                KeyEvent.KEYCODE_BACK -> {
+                    if (isDown && event.repeatCount == 0) stopReorder()
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
     private fun setupRecyclerView() {
-        val slotSizePx = calculateSlotSizePx()
+        val columns = layoutPrefs.getColumns()
         appSlotAdapter = AppSlotAdapter(
-            onSlotClick = { position ->
-                lastFocusedPosition = position
-                openAppSelection()
-            },
-            onSlotLongClick = { position ->
-                lastFocusedPosition = position
-                showAppContextMenu(position)
-            },
-            slotSizePx = slotSizePx,
-            iconSizePx = slotIconSizePx
+            onPlusClick = { openAppSelection() },
+            onAppLongClick = { position -> showAppContextMenu(position) },
+            onHeaderClick = { position -> showCategoryMenu(position) },
+            onItemFocused = { key -> lastFocusedKey = key },
+            sizing = buildSizing(columns)
         )
 
-        val columns = HOME_GRID_COLUMNS
-        appSlots.layoutManager = GridLayoutManager(this, columns)
+        gridLayoutManager = GridLayoutManager(this, columns)
+        gridLayoutManager.spanSizeLookup = object : GridLayoutManager.SpanSizeLookup() {
+            override fun getSpanSize(position: Int): Int {
+                val slot = appSlotAdapter.currentList.getOrNull(position)
+                // A category header takes a whole row; every other item is a single tile.
+                return if (slot != null && slot.isHeader) gridLayoutManager.spanCount else 1
+            }
+        }
+        gridLayoutManager.spanSizeLookup.isSpanIndexCacheEnabled = true
+
+        appSlots.layoutManager = gridLayoutManager
         appSlots.adapter = appSlotAdapter
         appSlots.setHasFixedSize(true)
         appSlots.setItemViewCacheSize(0)
-        appSlots.recycledViewPool.setMaxRecycledViews(0, 2)
+        appSlots.recycledViewPool.setMaxRecycledViews(AppSlotAdapter.VIEW_TYPE_APP, 12)
+        // Update tiles in place so the remote's focus is not lost when the list changes.
+        (appSlots.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
+    }
+
+    private fun buildSizing(columns: Int): AppSlotAdapter.Sizing {
+        return AppSlotAdapter.Sizing.forSlot(
+            calculateSlotSizePx(columns),
+            resources.displayMetrics.density
+        )
     }
 
     private fun setupClickListeners() {
         settingsButton.setOnClickListener { openAndroidSettings() }
         wallpaperButton.setOnClickListener { showWallpaperDialog() }
+        customizeButton.setOnClickListener { showCustomizeDialog() }
         aboutButton.setOnClickListener { showAboutDialog() }
     }
 
@@ -273,9 +341,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showAppContextMenu(position: Int) {
-        val currentList = appSlotAdapter.currentList
-        val slot = currentList.getOrNull(position) ?: return
+        val slot = appSlotAdapter.currentList.getOrNull(position) ?: return
         val app = slot.appInfo ?: return
+        val appId = slot.key
 
         val options = mutableListOf<String>()
         val actions = mutableListOf<() -> Unit>()
@@ -290,30 +358,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 2. Move Left
-        if (position > 0) {
-            options.add(getString(R.string.app_menu_move_left))
-            actions.add {
-                if (appManager.moveApp(position, position - 1)) {
-                    appManager.invalidateSelectionCache()
-                    lastFocusedPosition = position - 1
-                    loadAppSlots()
-                }
-            }
-        }
+        // 2. Reorder with the remote's arrow keys
+        options.add(getString(R.string.app_menu_reorder))
+        actions.add { startReorder(appId) }
 
-        // 3. Move Right
-        val totalApps = currentList.count { !it.isEmpty }
-        if (position < totalApps - 1) {
-            options.add(getString(R.string.app_menu_move_right))
-            actions.add {
-                if (appManager.moveApp(position, position + 1)) {
-                    appManager.invalidateSelectionCache()
-                    lastFocusedPosition = position + 1
-                    loadAppSlots()
-                }
-            }
-        }
+        // 3. Move to a category
+        options.add(getString(R.string.app_menu_move_to_category))
+        actions.add { showMoveToCategoryDialog(appId) }
 
         // 4. App Info
         if (!app.isShortcut) {
@@ -336,6 +387,266 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
+    }
+
+    // ---- Reorder mode: move an app with the remote's arrow keys ----
+
+    private fun startReorder(appId: String) {
+        reorderingId = appId
+        lastFocusedKey = appId
+        appSlotAdapter.movingKey = appId
+        restoreFocus(appId)
+        Toast.makeText(this, R.string.reorder_hint, Toast.LENGTH_LONG).show()
+    }
+
+    private fun stopReorder() {
+        if (reorderingId == null) return
+        reorderingId = null
+        appSlotAdapter.movingKey = null
+    }
+
+    /** Moves the app being reordered one tile (or one row when [vertical]) within its group. */
+    private fun moveReorderingApp(direction: Int, vertical: Boolean) {
+        val appId = reorderingId ?: return
+        val order = appManager.getSelectedApps()
+        val grouped = HomeLayout.group(
+            order,
+            layoutPrefs.getCategories(),
+            layoutPrefs.getAssignments()
+        )
+        val group = grouped.groupOf(appId)
+        val offset = if (vertical) {
+            HomeLayout.rowOffset(group.indexOf(appId), group.size, gridLayoutManager.spanCount, direction)
+        } else {
+            direction
+        }
+        val newOrder = HomeLayout.moveInGroup(order, group, appId, offset) ?: return
+        appManager.saveSelectedApps(newOrder)
+        lastFocusedKey = appId
+        submitSlots(appId)
+    }
+
+    // ---- Categories ----
+
+    private fun assignToCategory(appId: String, categoryId: String?) {
+        layoutPrefs.assign(appId, categoryId)
+        val order = appManager.getSelectedApps()
+        val grouped = HomeLayout.group(
+            order,
+            layoutPrefs.getCategories(),
+            layoutPrefs.getAssignments()
+        )
+        // Show the app at the end of its new group.
+        val newOrder = HomeLayout.moveToGroupEnd(order, appId, grouped.groupOf(appId))
+        appManager.saveSelectedApps(newOrder)
+        lastFocusedKey = appId
+        submitSlots(appId)
+    }
+
+    private fun showMoveToCategoryDialog(appId: String) {
+        val categories = layoutPrefs.getCategories()
+        val currentId = layoutPrefs.getAssignments()[appId]
+
+        val labels = mutableListOf(getString(R.string.category_none))
+        categories.forEach { labels.add(it.name) }
+        labels.add(getString(R.string.category_new_ellipsis))
+
+        val currentIndex = categories.indexOfFirst { it.id == currentId }
+        val checked = if (currentIndex < 0) 0 else currentIndex + 1
+
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.app_menu_move_to_category)
+            .setSingleChoiceItems(labels.toTypedArray(), checked) { dialog, which ->
+                dialog.dismiss()
+                when {
+                    which == 0 -> assignToCategory(appId, null)
+                    which <= categories.size -> assignToCategory(appId, categories[which - 1].id)
+                    else -> promptNewCategory(appId)
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** Asks for a name and creates a category; if [assignAppId] is set, the app joins it. */
+    private fun promptNewCategory(assignAppId: String?) {
+        promptCategoryName(R.string.customize_new_category, "") { name ->
+            val category = layoutPrefs.addCategory(name)
+            if (category == null) {
+                Toast.makeText(this, R.string.category_name_empty, Toast.LENGTH_SHORT).show()
+            } else if (assignAppId != null) {
+                assignToCategory(assignAppId, category.id)
+            } else {
+                val key = AppSlotAdapter.categoryKey(category.id)
+                lastFocusedKey = key
+                submitSlots(key)
+            }
+        }
+    }
+
+    private fun promptCategoryName(titleRes: Int, initial: String, onName: (String) -> Unit) {
+        val density = resources.displayMetrics.density
+        val input = EditText(this).apply {
+            setSingleLine()
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            filters = arrayOf<InputFilter>(InputFilter.LengthFilter(HomeLayout.MAX_CATEGORY_NAME))
+            hint = getString(R.string.category_name_hint)
+            setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+            setHintTextColor(ContextCompat.getColor(context, R.color.text_tertiary))
+            setText(initial)
+            setSelection(text.length)
+        }
+        val container = FrameLayout(this).apply {
+            val side = (24 * density).toInt()
+            setPadding(side, (8 * density).toInt(), side, 0)
+            addView(
+                input,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+            )
+        }
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(titleRes)
+            .setView(container)
+            .setPositiveButton(R.string.done) { _, _ -> onName(input.text.toString()) }
+            .setNegativeButton(R.string.cancel, null)
+            .create()
+        dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
+        dialog.show()
+    }
+
+    /** Menu shown when a category header is selected. */
+    private fun showCategoryMenu(position: Int) {
+        val category = appSlotAdapter.currentList.getOrNull(position)?.category ?: return
+        val categories = layoutPrefs.getCategories()
+        val index = categories.indexOfFirst { it.id == category.id }
+        val headerKey = AppSlotAdapter.categoryKey(category.id)
+
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+
+        options.add(getString(R.string.category_rename))
+        actions.add {
+            promptCategoryName(R.string.category_rename, category.name) { name ->
+                if (layoutPrefs.renameCategory(category.id, name)) {
+                    lastFocusedKey = headerKey
+                    submitSlots(headerKey)
+                } else {
+                    Toast.makeText(this, R.string.category_name_empty, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        if (index > 0) {
+            options.add(getString(R.string.category_move_up))
+            actions.add { moveCategory(category.id, -1) }
+        }
+        if (index >= 0 && index < categories.size - 1) {
+            options.add(getString(R.string.category_move_down))
+            actions.add { moveCategory(category.id, 1) }
+        }
+        options.add(getString(R.string.customize_new_category))
+        actions.add { promptNewCategory(null) }
+        options.add(getString(R.string.category_delete))
+        actions.add { confirmDeleteCategory(category) }
+
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(category.name)
+            .setItems(options.toTypedArray()) { _, which ->
+                actions.getOrNull(which)?.invoke()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun moveCategory(categoryId: String, offset: Int) {
+        if (layoutPrefs.moveCategory(categoryId, offset)) {
+            val key = AppSlotAdapter.categoryKey(categoryId)
+            lastFocusedKey = key
+            submitSlots(key)
+        }
+    }
+
+    private fun confirmDeleteCategory(category: Category) {
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.category_delete_title)
+            .setMessage(getString(R.string.category_delete_message, category.name))
+            .setPositiveButton(R.string.delete) { _, _ ->
+                layoutPrefs.deleteCategory(category.id)
+                lastFocusedKey = AppSlotAdapter.KEY_PLUS
+                submitSlots(AppSlotAdapter.KEY_PLUS)
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    // ---- Customize (icon size, sort, new category) ----
+
+    private fun showCustomizeDialog() {
+        val options = arrayOf(
+            getString(R.string.customize_icon_size),
+            getString(R.string.customize_new_category),
+            getString(R.string.customize_sort_az),
+            getString(R.string.customize_add_remove_apps)
+        )
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_title)
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> showIconSizeDialog()
+                    1 -> promptNewCategory(null)
+                    2 -> sortAppsAlphabetically()
+                    3 -> openAppSelection()
+                    else -> Unit
+                }
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun showIconSizeDialog() {
+        val labels = arrayOf(
+            getString(R.string.icon_size_very_small),
+            getString(R.string.icon_size_small),
+            getString(R.string.icon_size_medium),
+            getString(R.string.icon_size_large),
+            getString(R.string.icon_size_very_large)
+        )
+        val current = layoutPrefs.getColumns()
+        var checked = ICON_SIZE_COLUMNS.indexOf(current)
+        if (checked < 0) {
+            checked = ICON_SIZE_COLUMNS.indexOf(LayoutPrefs.DEFAULT_COLUMNS)
+        }
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_icon_size)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                dialog.dismiss()
+                applyIconColumns(ICON_SIZE_COLUMNS[which])
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** Changes the icon size: fewer columns = bigger icons. Applies immediately. */
+    private fun applyIconColumns(columns: Int) {
+        layoutPrefs.setColumns(columns)
+        val applied = layoutPrefs.getColumns()
+        // Icons are rendered at a fixed pixel size, so drop the old ones and redraw.
+        appSlotAdapter.currentList.forEach { it.appInfo?.clearIcon() }
+        appManager.invalidateAppListCache()
+        gridLayoutManager.spanCount = applied
+        appSlotAdapter.sizing = buildSizing(applied)
+        restoreFocus(lastFocusedKey)
+    }
+
+    private fun sortAppsAlphabetically() {
+        val sorted = infoById.values
+            .sortedBy { it.getDisplayName().lowercase() }
+            .map { AppIdentifier.encode(it) }
+        appManager.saveSelectedApps(sorted)
+        Toast.makeText(this, R.string.sorted_az_done, Toast.LENGTH_SHORT).show()
+        submitSlots(lastFocusedKey)
     }
 
     private fun openAppDetails(packageName: String) {
@@ -504,11 +815,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun calculateSlotSizePx(): Int {
+    private fun calculateSlotSizePx(columns: Int): Int {
         val displayMetrics = resources.displayMetrics
         val screenWidthPx = displayMetrics.widthPixels
         val density = displayMetrics.density
-        val columns = HOME_GRID_COLUMNS
 
         val sideMarginPx = (24 * density).toInt() * 2
         val recyclerPaddingPx = (8 * density).toInt() * 2
@@ -517,8 +827,10 @@ class MainActivity : AppCompatActivity() {
 
         val availablePx = screenWidthPx - sideMarginPx - recyclerPaddingPx - totalItemMarginsPx
         val rawSize = availablePx / columns
-        val minSize = (96 * density).toInt()
-        val maxSize = (130 * density).toInt()
+        // 5 columns gives the original tile (up to 130dp). Fewer columns allow bigger tiles,
+        // more columns smaller ones.
+        val maxSize = (650f / columns * density).toInt()
+        val minSize = minOf((72 * density).toInt(), maxSize)
         return rawSize.coerceIn(minSize, maxSize)
     }
 
@@ -539,30 +851,53 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadAppSlots() {
-        val selectedApps = appManager.getSelectedAppInfos()
+        val infos = appManager.getSelectedAppInfos()
+        infoById = infos.associateBy { AppIdentifier.encode(it) }
+        layoutPrefs.pruneAssignments(infoById.keys)
+        submitSlots(lastFocusedKey)
+    }
+
+    /**
+     * Builds the grid from the saved order: apps without a category first, followed by the "+"
+     * tile, then each category as a header with its apps. Focus returns to [focusKey].
+     */
+    private fun submitSlots(focusKey: String?) {
+        val categories = layoutPrefs.getCategories()
+        val order = appManager.getSelectedApps().filter { infoById.containsKey(it) }
+        val grouped = HomeLayout.group(order, categories, layoutPrefs.getAssignments())
 
         val slots = mutableListOf<AppSlotAdapter.AppSlot>()
-        selectedApps.forEach { app ->
-            slots.add(AppSlotAdapter.AppSlot(app, false))
+        grouped.uncategorized.forEach { id ->
+            infoById[id]?.let { slots.add(AppSlotAdapter.AppSlot(it, false)) }
         }
 
         // Always show "+" so user can add or change apps
         slots.add(AppSlotAdapter.AppSlot(null, true))
 
+        categories.forEach { category ->
+            val ids = grouped.byCategory[category.id].orEmpty()
+            slots.add(AppSlotAdapter.AppSlot(null, false, category, ids.size))
+            ids.forEach { id ->
+                infoById[id]?.let { slots.add(AppSlotAdapter.AppSlot(it, false)) }
+            }
+        }
+
         appSlotAdapter.submitList(slots) {
-            restoreFocus()
+            restoreFocus(focusKey)
         }
     }
 
-    private fun restoreFocus() {
-        appSlots.post {
-            val targetPos = lastFocusedPosition.coerceIn(0, (appSlotAdapter.itemCount - 1).coerceAtLeast(0))
-            val holder = appSlots.findViewHolderForAdapterPosition(targetPos)
-            if (holder != null) {
-                holder.itemView.requestFocus()
-            } else if (appSlots.childCount > 0) {
-                appSlots.getChildAt(0).requestFocus()
-            }
+    private fun restoreFocus(key: String?) {
+        val list = appSlotAdapter.currentList
+        if (list.isEmpty()) return
+        var target = if (key != null) list.indexOfFirst { it.key == key } else -1
+        if (target < 0) target = 0
+
+        // Make sure the tile is on screen, then give it focus once the grid has been laid out.
+        appSlots.layoutManager?.scrollToPosition(target)
+        appSlots.doOnLayout {
+            val holder = appSlots.findViewHolderForAdapterPosition(target)
+            (holder?.itemView ?: appSlots.getChildAt(0))?.requestFocus()
         }
     }
 
@@ -571,10 +906,13 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.remove_app_title)
             .setMessage(getString(R.string.remove_app_message, app.getDisplayName()))
             .setPositiveButton(R.string.remove) { _, _ ->
-                appManager.removeSelectedApp(AppIdentifier.encode(app))
+                val appId = AppIdentifier.encode(app)
+                // Focus the tile before the removed one afterwards.
+                lastFocusedKey = appSlotAdapter.currentList.getOrNull(position - 1)?.key
+                appManager.removeSelectedApp(appId)
                 appManager.invalidateSelectionCache()
+                layoutPrefs.assign(appId, null)
                 LauncherBroadcast.refreshHome(this)
-                lastFocusedPosition = (position - 1).coerceAtLeast(0)
                 loadAppSlots()
             }
             .setNegativeButton(R.string.cancel, null)
@@ -592,6 +930,12 @@ class MainActivity : AppCompatActivity() {
         RamOptimizationHelper.suppressStockLauncherRam(applicationContext)
     }
 
+    override fun onPause() {
+        super.onPause()
+        // Leaving the home screen (or opening a dialog elsewhere) ends reorder mode.
+        stopReorder()
+    }
+
     override fun onStop() {
         super.onStop()
         appManager.invalidateAppListCache()
@@ -606,6 +950,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     companion object {
-        private const val HOME_GRID_COLUMNS = 5
+        /** Icons per row for each icon size option, from the smallest to the biggest icons. */
+        private val ICON_SIZE_COLUMNS = intArrayOf(7, 6, LayoutPrefs.DEFAULT_COLUMNS, 4, 3)
     }
 }

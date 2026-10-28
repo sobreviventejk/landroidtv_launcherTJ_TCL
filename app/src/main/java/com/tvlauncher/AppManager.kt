@@ -9,7 +9,6 @@ import android.os.Handler
 import android.os.Looper
 import androidx.annotation.RequiresApi
 import java.lang.ref.WeakReference
-import java.util.Collections
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -185,29 +184,13 @@ class AppManager(private val context: Context) {
     }
 
     fun saveSelectedApps(apps: Collection<String>) {
-        val ordered = apps.map { AppIdentifier.normalize(it) }.distinct().take(MAX_SLOTS)
+        // No upper limit: the home screen scrolls, so any number of apps can be pinned.
+        val ordered = apps.map { AppIdentifier.normalize(it) }.distinct()
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit()
             .putString(PREF_APPS_ORDER, ordered.joinToString(ORDER_DELIMITER))
             .apply()
         cachedSelectedOrder = ordered
-    }
-
-    fun moveApp(fromPosition: Int, toPosition: Int): Boolean {
-        val current = getSelectedApps().toMutableList()
-        if (fromPosition < 0 || fromPosition >= current.size ||
-            toPosition < 0 || toPosition >= current.size ||
-            fromPosition == toPosition
-        ) {
-            return false
-        }
-        Collections.swap(current, fromPosition, toPosition)
-        saveSelectedApps(current)
-        return true
-    }
-
-    fun canAddMoreSelections(currentCount: Int = getSelectedApps().size): Boolean {
-        return currentCount < MAX_SLOTS
     }
 
     fun getSelectedAppInfos(): List<AppInfo> {
@@ -240,7 +223,7 @@ class AppManager(private val context: Context) {
             saveSelectedApps(validIds)
         }
 
-        return orderedResults.take(MAX_SLOTS)
+        return orderedResults
     }
 
     private fun loadAppInfoForPackage(packageName: String): AppInfo? {
@@ -337,14 +320,13 @@ class AppManager(private val context: Context) {
     }
 
     companion object {
-        /** Max apps on home; the "+" tile is always shown separately (15 icons total). */
-        const val MAX_SLOTS = 14
         private const val PREFS_NAME = "selected_apps"
         private const val PREF_APPS_ORDER = "apps_order"
         private const val PREF_APPS_LEGACY = "apps"
         private const val PREF_SHORTCUTS_ENABLED = "shortcuts_enabled"
         private const val ORDER_DELIMITER = "\u001E"
-        private const val ICON_CACHE_MAX = 16
+        // Home can now hold many apps, so keep enough rendered icons to scroll smoothly.
+        private const val ICON_CACHE_MAX = 48
         private val instances = mutableListOf<WeakReference<AppManager>>()
 
         fun trimMemoryGlobal(level: Int) {

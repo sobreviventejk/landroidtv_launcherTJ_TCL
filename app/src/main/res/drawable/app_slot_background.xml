@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Tile being moved in reorder mode -->
+    <item android:state_activated="true">
+        <shape android:shape="rectangle">
+            <solid android:color="#4D6366F1" />
+            <stroke android:width="3dp" android:color="@color/accent_focused" />
+            <corners android:radius="14dp" />
+        </shape>
+    </item>
     <item android:state_focused="true">
         <shape android:shape="rectangle">
             <solid android:color="@color/bg_card_focused" />

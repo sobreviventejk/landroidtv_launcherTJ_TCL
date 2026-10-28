@@ -1,0 +1,72 @@
+# Builds an installable APK of this (customized) launcher on GitHub, no local setup needed.
+#
+# How to use: open the "Actions" tab of your fork -> "Build APK" -> "Run workflow".
+# When it finishes, download the "tv-launcher-apk" artifact (a zip with app-release.apk).
+#
+# It builds the "fdroid" flavor, which has NO automatic updater, so the app will never try to
+# replace your version with the original one from GitHub.
+#
+# Signing: by default a new key is generated on every run, which means each new build must be
+# installed after uninstalling the previous one. To keep updating in place, create the repo
+# secrets KEYSTORE_BASE64, SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS and SIGNING_KEY_PASSWORD
+# (same ones the original release workflow uses) and the same key will be used every time.
+name: Build APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK components
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Prepare signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          SECRET_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SECRET_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SECRET_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "SIGNING_STORE_PASSWORD=$SECRET_STORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "SIGNING_KEY_ALIAS=$SECRET_KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "SIGNING_KEY_PASSWORD=$SECRET_KEY_PASSWORD" >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -v -keystore "$RUNNER_TEMP/release.keystore" \
+              -alias tvlauncher -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass android -keypass android -dname "CN=TV Launcher"
+            echo "SIGNING_STORE_PASSWORD=android" >> "$GITHUB_ENV"
+            echo "SIGNING_KEY_ALIAS=tvlauncher" >> "$GITHUB_ENV"
+            echo "SIGNING_KEY_PASSWORD=android" >> "$GITHUB_ENV"
+          fi
+          echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: Run unit tests
+        run: ./gradlew testFdroidDebugUnitTest --no-daemon
+
+      - name: Build release APK
+        run: ./gradlew assembleFdroidRelease --no-daemon
+
+      - name: Rename APK
+        run: cp app/build/outputs/apk/fdroid/release/app-fdroid-release.apk app-release.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-launcher-apk
+          path: app-release.apk
