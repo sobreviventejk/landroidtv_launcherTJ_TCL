@@ -38,6 +38,52 @@ object RamOptimizationHelper {
     }
 
     /**
+     * One-tap memory cleaning: stops the background processes of the pre-installed TV launchers
+     * and of every app the user installed (except this launcher). Returns how many were asked to stop.
+     */
+    fun freeMemoryNow(context: Context): Int {
+        var count = 0
+        try {
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                ?: return 0
+            val pm = context.packageManager
+            val targets = linkedSetOf<String>()
+            targets.addAll(pickTargets(context, pm))
+            pm.getInstalledApplications(0).forEach { info ->
+                val isSystemApp = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+                if (!isSystemApp &&
+                    info.packageName != context.packageName &&
+                    !TvHomeOverrideService.isWhitelistedPackage(info.packageName)
+                ) {
+                    targets.add(info.packageName)
+                }
+            }
+            targets.forEach { packageName ->
+                try {
+                    activityManager.killBackgroundProcesses(packageName)
+                    count++
+                } catch (_: Exception) {
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return count
+    }
+
+    /** Free memory in megabytes, as reported by the system. */
+    fun availableMemoryMb(context: Context): Long {
+        return try {
+            val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                ?: return 0L
+            val info = ActivityManager.MemoryInfo()
+            activityManager.getMemoryInfo(info)
+            info.availMem / (1024L * 1024L)
+        } catch (_: Exception) {
+            0L
+        }
+    }
+
+    /**
      * Chooses which packages may be killed. Only pre-installed (system) launchers
      * are ever targeted — user-installed launchers (e.g. a third-party launcher the
      * user picked) are never touched, and settings/installer packages are whitelisted.

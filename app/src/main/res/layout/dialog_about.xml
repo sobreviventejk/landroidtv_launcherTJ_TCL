@@ -59,7 +59,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="Fast, lightweight, minimal RAM launcher"
+                    android:text="@string/about_tagline"
                     android:textColor="@color/text_secondary"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -172,7 +172,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Automatically check and install new TV Launcher updates in background"
+                android:text="@string/update_auto_description"
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
         </LinearLayout>

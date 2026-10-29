@@ -5,11 +5,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.provider.DocumentsContract
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Executors
@@ -23,6 +26,7 @@ object WallpaperManager {
     const val MODE_SOLID = "solid"
     const val MODE_ONLINE = "online"
     const val MODE_CUSTOM = "custom"
+    const val MODE_FOLDER = "folder"
 
     // Backwards compatibility alias
     const val MODE_REDDIT = "online"
@@ -34,7 +38,10 @@ object WallpaperManager {
     const val CATEGORY_SPACE = "space"
     const val CATEGORY_ARCHITECTURE = "city"
 
+    const val INTERVAL_1M = 60 * 1000L
+    const val INTERVAL_5M = 5 * 60 * 1000L
     const val INTERVAL_15M = 15 * 60 * 1000L
+    const val INTERVAL_30M = 30 * 60 * 1000L
     const val INTERVAL_1H = 60 * 60 * 1000L
     const val INTERVAL_6H = 6 * 60 * 60 * 1000L
     const val INTERVAL_24H = 24 * 60 * 60 * 1000L
@@ -46,6 +53,8 @@ object WallpaperManager {
     private const val PREF_CUSTOM_URL = "wallpaper_custom_url"
     private const val PREF_DIM_OVERLAY = "wallpaper_dim_overlay"
     private const val PREF_LAST_FETCH_TIME = "wallpaper_last_fetch_time"
+    private const val PREF_FOLDER_URI = "wallpaper_folder_uri"
+    private const val PREF_LAST_FOLDER_PICK = "wallpaper_last_folder_pick"
     private const val CACHE_FILE_NAME = "current_wallpaper.jpg"
     private const val MAX_REDIRECTS = 5
 
@@ -92,6 +101,38 @@ object WallpaperManager {
     fun setCustomUrl(context: Context, url: String) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         prefs.edit().putString(PREF_CUSTOM_URL, url).apply()
+    }
+
+    /** Folder chosen with the system folder picker (tree URI), or "" when none. */
+    fun getFolderUri(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(PREF_FOLDER_URI, "") ?: ""
+    }
+
+    fun setFolderUri(context: Context, uri: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(PREF_FOLDER_URI, uri).apply()
+    }
+
+    /** Short readable name of the chosen folder, taken from its document id. */
+    fun getFolderLabel(context: Context): String = labelForTree(getFolderUri(context))
+
+    fun labelForTree(rawUri: String): String {
+        if (rawUri.isEmpty()) return ""
+        return try {
+            val docId = DocumentsContract.getTreeDocumentId(Uri.parse(rawUri))
+            docId.substringAfter(':', docId).ifEmpty { docId }
+        } catch (_: Exception) {
+            rawUri
+        }
+    }
+
+    /** True when a wallpaper mode with automatic changes is on and the interval has passed. */
+    fun isRefreshDue(context: Context): Boolean {
+        if (getWallpaperMode(context) == MODE_SOLID) return false
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val lastFetch = prefs.getLong(PREF_LAST_FETCH_TIME, 0L)
+        return System.currentTimeMillis() - lastFetch >= getInterval(context)
     }
 
     fun isDimOverlayEnabled(context: Context): Boolean {
@@ -147,6 +188,7 @@ object WallpaperManager {
                     val url = getCustomUrl(context)
                     if (url.isNotEmpty()) downloadAndCacheImage(context, url) else false
                 }
+                MODE_FOLDER -> copyRandomImageFromFolder(context)
                 else -> false
             }
 
@@ -350,6 +392,70 @@ object WallpaperManager {
             }
         }
         return false
+    }
+
+    /** Picks a random image from the chosen folder (not the last one) and caches it. */
+    private fun copyRandomImageFromFolder(context: Context): Boolean {
+        val raw = getFolderUri(context)
+        if (raw.isEmpty()) return false
+        return try {
+            val treeUri = Uri.parse(raw)
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                treeUri,
+                DocumentsContract.getTreeDocumentId(treeUri)
+            )
+            val images = mutableListOf<String>()
+            context.contentResolver.query(
+                childrenUri,
+                arrayOf(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                ),
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val mime = cursor.getString(1).orEmpty()
+                    if (mime.startsWith("image/")) {
+                        images.add(cursor.getString(0))
+                    }
+                }
+            }
+            if (images.isEmpty()) return false
+
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val last = prefs.getString(PREF_LAST_FOLDER_PICK, null)
+            val choices = if (images.size > 1) images.filter { it != last } else images
+            val picked = choices.random()
+            prefs.edit().putString(PREF_LAST_FOLDER_PICK, picked).apply()
+
+            val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, picked)
+            val input = context.contentResolver.openInputStream(docUri) ?: return false
+            input.use { saveStreamToCache(context, it) }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Writes [input] to the wallpaper cache file. Returns false if the result is not usable. */
+    private fun saveStreamToCache(context: Context, input: InputStream): Boolean {
+        val tempFile = File(context.cacheDir, "${CACHE_FILE_NAME}.tmp")
+        FileOutputStream(tempFile).use { output -> input.copyTo(output) }
+        if (!tempFile.exists() || tempFile.length() < 1024) {
+            tempFile.delete()
+            return false
+        }
+        val destFile = File(context.cacheDir, CACHE_FILE_NAME)
+        if (destFile.exists() && !destFile.delete()) {
+            tempFile.delete()
+            return false
+        }
+        if (!tempFile.renameTo(destFile)) {
+            tempFile.delete()
+            return false
+        }
+        return true
     }
 
     private fun isAllowedImageUrl(url: String): Boolean {

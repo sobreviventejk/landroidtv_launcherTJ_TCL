@@ -137,6 +137,10 @@ class TvHomeOverrideService : AccessibilityService() {
         private const val PREF_HOME_OVERRIDE = "home_override_enabled"
         private const val PREF_SUPPRESS_STOCK = "suppress_stock_launcher"
 
+        /** Both options come turned on: this launcher is useless without the Home key override. */
+        const val DEFAULT_HOME_OVERRIDE = true
+        const val DEFAULT_SUPPRESS_STOCK = true
+
         @Volatile
         private var pauseOverrideUntil: Long = 0L
 
@@ -180,7 +184,7 @@ class TvHomeOverrideService : AccessibilityService() {
 
         fun isHomeOverrideEnabled(context: Context): Boolean {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            return prefs.getBoolean(PREF_HOME_OVERRIDE, false)
+            return prefs.getBoolean(PREF_HOME_OVERRIDE, DEFAULT_HOME_OVERRIDE)
         }
 
         fun setHomeOverrideEnabled(context: Context, enabled: Boolean) {
@@ -190,7 +194,7 @@ class TvHomeOverrideService : AccessibilityService() {
 
         fun isSuppressStockLauncherEnabled(context: Context): Boolean {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            return prefs.getBoolean(PREF_SUPPRESS_STOCK, false)
+            return prefs.getBoolean(PREF_SUPPRESS_STOCK, DEFAULT_SUPPRESS_STOCK)
         }
 
         fun setSuppressStockLauncherEnabled(context: Context, enabled: Boolean) {

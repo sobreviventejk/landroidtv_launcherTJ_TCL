@@ -23,7 +23,8 @@ class AppSlotAdapter(
     private val onAppLongClick: (Int) -> Unit,
     private val onHeaderClick: (Int) -> Unit,
     private val onItemFocused: (String) -> Unit,
-    sizing: AppSlotAdapter.Sizing
+    sizing: AppSlotAdapter.Sizing,
+    private val onAppLaunched: (AppInfo) -> Unit = {}
 ) : ListAdapter<AppSlotAdapter.AppSlot, RecyclerView.ViewHolder>(DIFF_CALLBACK) {
 
     /**
@@ -231,6 +232,7 @@ class AppSlotAdapter(
                 holder.addText.visibility = View.GONE
 
                 holder.itemView.setOnClickListener {
+                    onAppLaunched(app)
                     if (app.isShortcut) {
                         ShortcutHelper.launchShortcut(
                             holder.itemView.context,

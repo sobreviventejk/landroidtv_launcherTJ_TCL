@@ -1,0 +1,81 @@
+package com.tvlauncher
+
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ImageView
+import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.RecyclerView
+
+/**
+ * Minimal list of every installed app: icon, name and where the app is on the home screen
+ * (category name, or "not added"). Selecting a row opens the actions for that app.
+ */
+class AllAppsAdapter(
+    private val onClick: (Row) -> Unit,
+    private val onLongClick: (Row) -> Unit,
+    private val iconSizePx: () -> Int
+) : ListAdapter<AllAppsAdapter.Row, AllAppsAdapter.ViewHolder>(DIFF_CALLBACK) {
+
+    /**
+     * @property app the installed app
+     * @property id identifier used on the home screen (see [AppIdentifier])
+     * @property added true when the app is on the home screen
+     * @property status text under the name (category name or "not added")
+     */
+    data class Row(
+        val app: AppInfo,
+        val id: String,
+        val added: Boolean,
+        val status: String
+    )
+
+    class ViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        val icon: ImageView = itemView.findViewById(R.id.rowIcon)
+        val name: TextView = itemView.findViewById(R.id.rowName)
+        val status: TextView = itemView.findViewById(R.id.rowStatus)
+        val check: TextView = itemView.findViewById(R.id.rowCheck)
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_all_app, parent, false)
+        return ViewHolder(view)
+    }
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+        val row = getItem(position)
+        holder.name.text = row.app.getDisplayName()
+        holder.status.text = row.status
+        holder.check.visibility = if (row.added) View.VISIBLE else View.GONE
+        holder.icon.setImageDrawable(
+            row.app.getIcon(holder.itemView.context.packageManager, iconSizePx())
+        )
+        holder.itemView.setOnClickListener {
+            val pos = holder.bindingAdapterPosition
+            if (pos != RecyclerView.NO_POSITION) {
+                onClick(getItem(pos))
+            }
+        }
+        holder.itemView.setOnLongClickListener {
+            val pos = holder.bindingAdapterPosition
+            if (pos != RecyclerView.NO_POSITION) {
+                onLongClick(getItem(pos))
+            }
+            true
+        }
+    }
+
+    companion object {
+        private val DIFF_CALLBACK = object : DiffUtil.ItemCallback<Row>() {
+            override fun areItemsTheSame(oldItem: Row, newItem: Row): Boolean =
+                oldItem.id == newItem.id
+
+            override fun areContentsTheSame(oldItem: Row, newItem: Row): Boolean =
+                oldItem.added == newItem.added &&
+                    oldItem.status == newItem.status &&
+                    oldItem.app.appName == newItem.app.appName
+        }
+    }
+}

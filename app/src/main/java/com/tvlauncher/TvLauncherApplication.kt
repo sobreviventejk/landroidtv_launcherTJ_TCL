@@ -6,6 +6,7 @@ import android.content.ComponentCallbacks2
 class TvLauncherApplication : Application() {
     override fun onCreate() {
         super.onCreate()
+        CrashLog.install(this)
         if (BuildConfig.UPDATES_ENABLED) {
             UpdaterBridge.scheduleWeeklyCheck(this)
         }
