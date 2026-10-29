@@ -6,10 +6,12 @@
 # It builds the "fdroid" flavor, which has NO automatic updater, so the app will never try to
 # replace your version with the original one from GitHub.
 #
-# Signing: by default a new key is generated on every run, which means each new build must be
-# installed after uninstalling the previous one. To keep updating in place, create the repo
-# secrets KEYSTORE_BASE64, SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS and SIGNING_KEY_PASSWORD
-# (same ones the original release workflow uses) and the same key will be used every time.
+# Signing: the key is YOUR OWN key. The first run creates it and GitHub keeps it in the Actions
+# cache, so every later build is signed with the same key and installs over the old app without
+# uninstalling (your categories and settings stay). GitHub removes a cache that is not used for 7
+# days; if that happens a new key is created and you must uninstall the app once (use
+# "Exportar configurações" in the launcher first). To keep one key forever, create the repo secrets
+# KEYSTORE_BASE64, SIGNING_STORE_PASSWORD, SIGNING_KEY_ALIAS and SIGNING_KEY_PASSWORD.
 name: Build APK
 
 on:
@@ -34,6 +36,13 @@ jobs:
       - name: Install Android SDK components
         run: sdkmanager "platforms;android-34" "build-tools;34.0.0"
 
+      - name: Restore signing key from cache
+        id: keycache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/persisted-keystore
+          key: tv-launcher-signing-key-v1
+
       - name: Prepare signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -41,15 +50,23 @@ jobs:
           SECRET_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SECRET_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
+          KEY_DIR="$RUNNER_TEMP/persisted-keystore"
+          mkdir -p "$KEY_DIR"
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
             echo "SIGNING_STORE_PASSWORD=$SECRET_STORE_PASSWORD" >> "$GITHUB_ENV"
             echo "SIGNING_KEY_ALIAS=$SECRET_KEY_ALIAS" >> "$GITHUB_ENV"
             echo "SIGNING_KEY_PASSWORD=$SECRET_KEY_PASSWORD" >> "$GITHUB_ENV"
           else
-            keytool -genkeypair -v -keystore "$RUNNER_TEMP/release.keystore" \
-              -alias tvlauncher -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass android -keypass android -dname "CN=TV Launcher"
+            if [ ! -f "$KEY_DIR/release.keystore" ]; then
+              echo "Creating a new signing key (it is saved in the Actions cache for the next builds)"
+              keytool -genkeypair -v -keystore "$KEY_DIR/release.keystore" \
+                -alias tvlauncher -keyalg RSA -keysize 2048 -validity 10000 \
+                -storepass android -keypass android -dname "CN=TV Launcher TJ"
+            else
+              echo "Using the signing key restored from the cache"
+            fi
+            cp "$KEY_DIR/release.keystore" "$RUNNER_TEMP/release.keystore"
             echo "SIGNING_STORE_PASSWORD=android" >> "$GITHUB_ENV"
             echo "SIGNING_KEY_ALIAS=tvlauncher" >> "$GITHUB_ENV"
             echo "SIGNING_KEY_PASSWORD=android" >> "$GITHUB_ENV"
