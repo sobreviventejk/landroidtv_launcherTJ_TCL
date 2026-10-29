@@ -277,7 +277,6 @@ class MainActivity : AppCompatActivity() {
 
         appSlots.layoutManager = gridLayoutManager
         appSlots.adapter = appSlotAdapter
-        appSlots.setHasFixedSize(true)
         appSlots.setItemViewCacheSize(0)
         appSlots.recycledViewPool.setMaxRecycledViews(AppSlotAdapter.VIEW_TYPE_APP, 12)
         // Update tiles in place so the remote's focus is not lost when the list changes.
