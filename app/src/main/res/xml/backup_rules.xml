@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- Exclude specific files or directories from backup -->
+    <!-- Secrets are never copied out of the device. The PIN salt/hash lives in its own file,
+         so a backup cannot be used to brute-force the PIN offline. -->
+    <exclude domain="sharedpref" path="launcher_pin_secret.xml" />
+    <!-- Photos the user added as banners are private. -->
+    <exclude domain="file" path="banners/" />
+    <!-- Stack traces can contain app names and file paths. -->
+    <exclude domain="file" path="last_crash.txt" />
 </full-backup-content>
-
-
-
-
-

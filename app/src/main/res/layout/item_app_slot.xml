@@ -4,37 +4,40 @@
     android:layout_width="160dp"
     android:layout_height="160dp"
     android:layout_margin="8dp"
-    android:background="@drawable/app_slot_background"
     android:focusable="true"
     android:clickable="true">
 
-    <!-- Enlarged App Icon -->
+    <!-- App icon: big, like Google TV. The soft glow behind it is drawn in code. -->
     <ImageView
         android:id="@+id/appIcon"
-        android:layout_width="72dp"
-        android:layout_height="72dp"
-        android:layout_marginTop="16dp"
+        android:layout_width="104dp"
+        android:layout_height="104dp"
+        android:layout_marginTop="8dp"
         android:scaleType="fitCenter"
         android:visibility="gone"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- App Name -->
+    <!-- App name: only visible while the tile has focus. -->
     <TextView
         android:id="@+id/appName"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:layout_marginTop="6dp"
-        android:layout_marginEnd="8dp"
-        android:layout_marginBottom="10dp"
+        android:layout_marginStart="6dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="6dp"
+        android:layout_marginBottom="8dp"
+        android:ellipsize="end"
         android:gravity="center"
+        android:maxLines="1"
+        android:shadowColor="#CC000000"
+        android:shadowDx="0"
+        android:shadowDy="1"
+        android:shadowRadius="3"
         android:textColor="@color/text_primary"
         android:textSize="12sp"
-        android:maxLines="2"
-        android:ellipsize="end"
-        android:visibility="gone"
+        android:visibility="invisible"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"

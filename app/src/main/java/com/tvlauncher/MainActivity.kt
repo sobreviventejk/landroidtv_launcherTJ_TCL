@@ -1,15 +1,21 @@
 package com.tvlauncher
 
+import android.app.role.RoleManager
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.StatFs
 import android.provider.Settings
 import android.text.InputFilter
 import android.text.InputType
@@ -30,6 +36,9 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.ProgressBar
+import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,11 +47,17 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.doOnLayout
+import androidx.core.widget.doAfterTextChanged
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.SimpleItemAnimator
+import java.io.File
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 /**
  * Home screen in the Google TV style: category tabs on top, the apps of the selected tab below,
@@ -57,19 +72,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var greetingText: TextView
     private lateinit var topApps: RecyclerView
     private lateinit var topAppsLabel: TextView
-    private lateinit var inputsList: RecyclerView
     private lateinit var emptyHint: TextView
     private lateinit var settingsButton: ImageButton
-    private lateinit var wallpaperButton: ImageButton
+    private lateinit var searchButton: ImageButton
     private lateinit var customizeButton: ImageButton
+    private lateinit var profileButton: ImageButton
     private lateinit var wallpaperImageView: ImageView
     private lateinit var wallpaperDimOverlay: View
+    private lateinit var auroraView: AuroraView
+    private lateinit var weatherBox: LinearLayout
+    private lateinit var weatherIcon: ImageView
+    private lateinit var weatherText: TextView
     private lateinit var appManager: AppManager
     private lateinit var layoutPrefs: LayoutPrefs
     private lateinit var appSlotAdapter: AppSlotAdapter
     private lateinit var allAppsAdapter: AllAppsAdapter
     private lateinit var topAdapter: AppSlotAdapter
-    private lateinit var inputsAdapter: InputsAdapter
     private lateinit var pinPrefs: PinPrefs
     private lateinit var gridLayoutManager: GridLayoutManager
 
@@ -92,7 +110,11 @@ class MainActivity : AppCompatActivity() {
     /** Greeting text on screen, to avoid redrawing it when nothing changed. */
     private var lastGreeting: String? = null
 
-    private var inputEntries: List<TvInputEntry> = emptyList()
+    /** Last forecast shown in the header, reused when the week dialog opens. */
+    private var lastForecast: Weather.Forecast? = null
+
+    /** When the header weather was last updated, to refresh it from time to time. */
+    private var lastWeatherUiRefresh = 0L
 
     /** Key (see AppSlotAdapter.AppSlot.key) of the tile that had focus last. */
     private var lastFocusedKey: String? = null
@@ -130,12 +152,34 @@ class MainActivity : AppCompatActivity() {
             if (uri != null) readBackup(uri)
         }
 
+    private val profilePicker =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) saveProfilePhoto(uri)
+        }
+
+    private val logExportPicker =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+            if (uri != null) writeEventLog(uri)
+        }
+
+    /** Used when the TV has no system folder picker: the user picks the photos themselves. */
+    private val folderPhotosPicker =
+        registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+            if (!uris.isNullOrEmpty()) importFolderPhotos(uris)
+        }
+
     private val wallpaperTicker = object : Runnable {
         override fun run() {
             if (WallpaperManager.isRefreshDue(this@MainActivity)) {
                 applyWallpaper(force = false)
             }
             applyGreeting()
+            // Keeps the header forecast fresh; Weather.load reuses the cache when it is still valid.
+            if (layoutPrefs.isWeatherEnabled() &&
+                System.currentTimeMillis() - lastWeatherUiRefresh >= WEATHER_UI_REFRESH_MS
+            ) {
+                refreshWeather(force = false)
+            }
             mainHandler.postDelayed(this, WALLPAPER_CHECK_MS)
         }
     }
@@ -164,13 +208,17 @@ class MainActivity : AppCompatActivity() {
         greetingText = findViewById(R.id.greetingText)
         topApps = findViewById(R.id.topApps)
         topAppsLabel = findViewById(R.id.topAppsLabel)
-        inputsList = findViewById(R.id.inputsList)
         emptyHint = findViewById(R.id.emptyHint)
         settingsButton = findViewById(R.id.settingsButton)
-        wallpaperButton = findViewById(R.id.wallpaperButton)
+        searchButton = findViewById(R.id.searchButton)
         customizeButton = findViewById(R.id.customizeButton)
+        profileButton = findViewById(R.id.profileButton)
         wallpaperImageView = findViewById(R.id.wallpaperImageView)
         wallpaperDimOverlay = findViewById(R.id.wallpaperDimOverlay)
+        auroraView = findViewById(R.id.auroraView)
+        weatherBox = findViewById(R.id.weatherBox)
+        weatherIcon = findViewById(R.id.weatherIcon)
+        weatherText = findViewById(R.id.weatherText)
 
         appManager = AppManager(this)
         layoutPrefs = LayoutPrefs(this)
@@ -178,21 +226,29 @@ class MainActivity : AppCompatActivity() {
         setupRecyclerView()
         setupAllApps()
         setupTopApps()
-        setupInputs()
         setupClickListeners()
+        applyIconLook()
+        applyPalette()
         applyGreeting()
         loadHomeInfos()
         buildTabs()
+        applyProfilePhoto()
         val saved = layoutPrefs.getLastTab()
         val first = if (saved != null && saved != TAB_NEW && !isLockedNow(saved) && tabViews.containsKey(saved)) saved else TAB_HOME
         selectTab(first, requestFocus = true)
         applyWallpaper()
+        refreshWeather(force = false)
 
         ContextCompat.registerReceiver(
             this,
             refreshReceiver,
             android.content.IntentFilter(LauncherBroadcast.ACTION_REFRESH_HOME),
             ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        CrashLog.log(
+            this,
+            "Launcher iniciada ${getVersionName()} · ${Build.MANUFACTURER} ${Build.MODEL}" +
+                " · Android ${Build.VERSION.RELEASE}"
         )
     }
 
@@ -208,7 +264,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_BACK) {
-            if (currentTab == TAB_ALL || currentTab == TAB_INPUTS) {
+            if (currentTab == TAB_ALL) {
                 val target = if (tabViews.containsKey(previousContentTab)) previousContentTab else TAB_HOME
                 selectTab(target, requestFocus = false)
                 tabViews[target]?.requestFocus()
@@ -287,12 +343,29 @@ class MainActivity : AppCompatActivity() {
         allAppsAdapter = AllAppsAdapter(
             onClick = { row -> onAllAppsRowClick(row) },
             onLongClick = { row -> showAllAppActions(row) },
-            iconSizePx = { appSlotAdapter.sizing.iconPx }
+            iconSizePx = { allAppsIconSizePx() },
+            rowHeightPx = { allAppsRowHeightPx() }
         )
-        allAppsList.layoutManager = GridLayoutManager(this, ALL_APPS_COLUMNS)
+        allAppsList.layoutManager = GridLayoutManager(this, allAppsColumns())
         allAppsList.adapter = allAppsAdapter
         (allAppsList.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
     }
+
+    /** Columns of the "All apps" tab; it has its own size, independent of the other tabs. */
+    private fun allAppsColumns(): Int =
+        if (layoutPrefs.hasColumnsFor(TAB_ALL)) {
+            layoutPrefs.getColumnsFor(TAB_ALL).coerceIn(ALL_APPS_MIN_COLUMNS, ALL_APPS_MAX_COLUMNS)
+        } else {
+            ALL_APPS_COLUMNS
+        }
+
+    private fun allAppsRowHeightPx(): Int {
+        val density = resources.displayMetrics.density
+        val dp = (120f / allAppsColumns() + 20f).coerceIn(40f, 88f)
+        return (dp * density).toInt()
+    }
+
+    private fun allAppsIconSizePx(): Int = (allAppsRowHeightPx() * 0.62f).toInt()
 
     /** Small horizontal row with the most used apps, shown above the grid of the first tab. */
     private fun setupTopApps() {
@@ -310,16 +383,6 @@ class MainActivity : AppCompatActivity() {
         (topApps.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
     }
 
-    private fun setupInputs() {
-        inputsAdapter = InputsAdapter { entry ->
-            if (!TvInputHelper.launch(this, entry)) {
-                Toast.makeText(this, R.string.inputs_failed, Toast.LENGTH_SHORT).show()
-            }
-        }
-        inputsList.layoutManager = GridLayoutManager(this, ALL_APPS_COLUMNS)
-        inputsList.adapter = inputsAdapter
-    }
-
     /** Shows the most used apps on the first tab only, and only when there are any. */
     private fun refreshTopApps() {
         val show = currentTab == TAB_HOME && layoutPrefs.isMostUsedEnabled()
@@ -333,17 +396,24 @@ class MainActivity : AppCompatActivity() {
         topAppsLabel.visibility = visibility
     }
 
-    private fun buildSizing(columns: Int): AppSlotAdapter.Sizing {
+    private fun buildSizing(columns: Int, rows: Int = layoutPrefs.getRows()): AppSlotAdapter.Sizing {
         return AppSlotAdapter.Sizing.forSlot(
-            calculateSlotSizePx(columns),
+            calculateSlotSizePx(columns, rows),
             resources.displayMetrics.density
         )
     }
 
     private fun setupClickListeners() {
         settingsButton.setOnClickListener { openAndroidSettings() }
-        wallpaperButton.setOnClickListener { showWallpaperDialog() }
+        searchButton.setOnClickListener { showSearchDialog() }
         customizeButton.setOnClickListener { showCustomizeDialog() }
+        // Like the Google TV avatar: long press changes the photo, OK shows the system usage.
+        profileButton.setOnClickListener { showSystemDashboard() }
+        profileButton.setOnLongClickListener {
+            profilePicker.launch("image/*")
+            true
+        }
+        weatherBox.setOnClickListener { showWeekForecast() }
     }
 
     // ---- Greeting ----
@@ -356,12 +426,19 @@ class MainActivity : AppCompatActivity() {
             return
         }
         val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        val text = GreetingText.compose(
-            layoutPrefs.getGreeting(),
-            hour,
-            System.currentTimeMillis(),
-            layoutPrefs.isGreetingByTime()
-        )
+        val now = System.currentTimeMillis()
+        val raw = layoutPrefs.getGreeting()
+        val title = GreetingText.title(raw, hour, layoutPrefs.isGreetingByTime())
+        val phrase = if (layoutPrefs.isAutoMessagesEnabled()) {
+            RandomMessages.pick(
+                layoutPrefs.getMessageKindsMask(),
+                layoutPrefs.getMessageTarget(),
+                now
+            )
+        } else {
+            GreetingText.pick(GreetingText.phrases(raw), now)
+        }
+        val text = if (phrase == null) title else title + "\n" + phrase
         val signature = "$level|$text"
         if (signature == lastGreeting && greetingText.visibility == View.VISIBLE) return
         lastGreeting = signature
@@ -380,7 +457,7 @@ class MainActivity : AppCompatActivity() {
             styled.setSpan(AbsoluteSizeSpan(titlePx, false), 0, titleEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             styled.setSpan(StyleSpan(Typeface.BOLD), 0, titleEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             styled.setSpan(
-                ForegroundColorSpan(ContextCompat.getColor(this, R.color.text_primary)),
+                ForegroundColorSpan(Palette.accent(layoutPrefs.getPalette())),
                 0,
                 titleEnd,
                 Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
@@ -388,6 +465,125 @@ class MainActivity : AppCompatActivity() {
         }
         greetingText.setTextSize(TypedValue.COMPLEX_UNIT_SP, bodySp)
         greetingText.text = styled
+    }
+
+    /** Applies the chosen palette to the tiles, tabs, greeting and aurora glow. */
+    private fun applyPalette() {
+        val entry = Palette.of(layoutPrefs.getPalette())
+        appSlotAdapter.accentColor = entry.accent
+        if (::topAdapter.isInitialized) {
+            topAdapter.accentColor = entry.accent
+        }
+        auroraView.setPalette(entry)
+        auroraView.visibility =
+            if (layoutPrefs.isAuroraEnabled()) View.VISIBLE else View.GONE
+        weatherIcon.setColorFilter(entry.accent)
+        updateTabStyles()
+        lastGreeting = null
+        applyGreeting()
+    }
+
+    /** Applies the icon shape to the home grid and to the "most used" row. */
+    private fun applyIconLook() {
+        val shape = layoutPrefs.getIconShape()
+        appSlotAdapter.iconShape = shape
+        if (::topAdapter.isInitialized) {
+            topAdapter.iconShape = shape
+        }
+    }
+
+    // ---- Weather (Belém - PA, Terra Firme) ----
+
+    /** Updates the little weather next to the clock. */
+    private fun refreshWeather(force: Boolean = false) {
+        if (!layoutPrefs.isWeatherEnabled()) {
+            weatherBox.visibility = View.GONE
+            lastForecast = null
+            return
+        }
+        Weather.load(this, force) { forecast ->
+            if (isFinishing || isDestroyed) return@load
+            if (forecast == null) {
+                if (lastForecast == null) weatherBox.visibility = View.GONE
+                return@load
+            }
+            lastForecast = forecast
+            lastWeatherUiRefresh = System.currentTimeMillis()
+            weatherBox.visibility = View.VISIBLE
+            weatherIcon.setImageResource(Weather.iconRes(forecast.code))
+            weatherIcon.setColorFilter(Palette.accent(layoutPrefs.getPalette()))
+            weatherText.text = getString(
+                R.string.weather_now,
+                forecast.temperatureC,
+                Weather.conditionLabel(forecast.code)
+            )
+        }
+    }
+
+    /** Week forecast dialog, opened by clicking the weather in the header. */
+    private fun showWeekForecast() {
+        val forecast = lastForecast ?: Weather.cached(this)
+        if (forecast == null) {
+            Toast.makeText(this, R.string.weather_unavailable, Toast.LENGTH_SHORT).show()
+            refreshWeather(force = true)
+            return
+        }
+        val lines = forecast.days.mapIndexed { index, day ->
+            val weekday = when (index) {
+                0 -> getString(R.string.weather_today)
+                1 -> getString(R.string.weather_tomorrow)
+                else -> {
+                    val label = Weather.weekdayLabel(day.isoDate)
+                    if (label.isEmpty()) label
+                    else label.substring(0, 1).uppercase() + label.substring(1)
+                }
+            }
+            val rain = if (day.rainPercent > 0) {
+                "  ·  " + getString(R.string.weather_rain_chance, day.rainPercent)
+            } else {
+                ""
+            }
+            getString(
+                R.string.weather_day_line,
+                weekday,
+                day.minC,
+                day.maxC,
+                Weather.conditionLabel(day.code)
+            ) + rain
+        }
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.weather_week_title)
+            .setMessage(lines.joinToString("\n"))
+            .setPositiveButton(R.string.close, null)
+            .setNeutralButton(R.string.weather_refresh) { _, _ -> refreshWeather(force = true) }
+            .create()
+        styleDialog(dialog, widthFraction = 0.5f, maxWidthDp = 620)
+        dialog.show()
+    }
+
+    /**
+     * Keeps every dialog in a comfortable size on TV: never the full screen width, and with an
+     * optional height cap so long contents scroll instead of being clipped.
+     */
+    private fun styleDialog(
+        dialog: AlertDialog,
+        widthFraction: Float = 0.46f,
+        maxWidthDp: Int = 600,
+        heightFraction: Float = 0f
+    ) {
+        dialog.setOnShowListener {
+            val metrics = resources.displayMetrics
+            val width = minOf(
+                (metrics.widthPixels * widthFraction).toInt(),
+                (maxWidthDp * metrics.density).toInt()
+            )
+            val height = if (heightFraction > 0f) {
+                (metrics.heightPixels * heightFraction).toInt()
+            } else {
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            dialog.window?.setLayout(width, height)
+        }
     }
 
     private fun showGreetingSizeDialog() {
@@ -461,13 +657,10 @@ class MainActivity : AppCompatActivity() {
     private fun buildTabs() {
         tabContainer.removeAllViews()
         tabViews.clear()
-        inputEntries = TvInputHelper.listInputs(this)
         addTab(TAB_HOME, getString(R.string.tab_home))
         layoutPrefs.getCategories().forEach { addTab(it.id, tabLabel(it)) }
-        if (inputEntries.isNotEmpty()) {
-            addTab(TAB_INPUTS, getString(R.string.tab_inputs))
-        }
-        addTab(TAB_NEW, "+ " + getString(R.string.tab_new_category))
+        // Categories are created from "Personalizar" or from the category picker when adding an
+        // app, so there is no "+ Categoria" tab anymore.
         addTab(TAB_ALL, getString(R.string.tab_all_apps))
         updateTabStyles()
     }
@@ -505,7 +698,7 @@ class MainActivity : AppCompatActivity() {
         }
         // Like Google TV: moving the focus over a tab already shows its apps.
         tab.setOnFocusChangeListener { _, hasFocus ->
-            if (hasFocus && key != TAB_NEW && key != currentTab) {
+            if (hasFocus && key != currentTab) {
                 selectTab(key, requestFocus = false)
             }
         }
@@ -516,10 +709,13 @@ class MainActivity : AppCompatActivity() {
     private fun updateTabStyles() {
         val dark = ContextCompat.getColor(this, R.color.bg_main)
         val light = ContextCompat.getColor(this, R.color.text_primary)
+        val accent = Palette.accent(layoutPrefs.getPalette())
         tabViews.forEach { (key, view) ->
             val selected = key == currentTab
             view.isSelected = selected
             view.setTextColor(if (selected) dark else light)
+            // Tints the white/translucent tab background with the palette colour.
+            view.backgroundTintList = ColorStateList.valueOf(accent)
         }
     }
 
@@ -545,7 +741,6 @@ class MainActivity : AppCompatActivity() {
     private fun focusContent() {
         val list = when (currentTab) {
             TAB_ALL -> allAppsList
-            TAB_INPUTS -> inputsList
             else -> appSlots
         }
         list.getChildAt(0)?.requestFocus()
@@ -553,34 +748,53 @@ class MainActivity : AppCompatActivity() {
 
     private fun selectTab(key: String, requestFocus: Boolean) {
         currentTab = key
-        if (key != TAB_ALL && key != TAB_INPUTS) previousContentTab = key
+        if (key != TAB_ALL) previousContentTab = key
         layoutPrefs.setLastTab(key)
         updateTabStyles()
         tabViews[key]?.let { tab ->
             tabScroll.post { tabScroll.smoothScrollTo((tab.left - tabScroll.width / 3).coerceAtLeast(0), 0) }
         }
         refreshTopApps()
+        applyGridForTab()
         appSlots.visibility = View.GONE
         allAppsList.visibility = View.GONE
-        inputsList.visibility = View.GONE
         emptyHint.visibility = View.GONE
         when (key) {
             TAB_ALL -> {
                 allAppsList.visibility = View.VISIBLE
                 refreshAllApps(requestFocus)
             }
-            TAB_INPUTS -> {
-                inputsList.visibility = View.VISIBLE
-                inputsAdapter.submit(inputEntries)
-                if (requestFocus) {
-                    inputsList.post { inputsList.getChildAt(0)?.requestFocus() }
-                }
-            }
             else -> {
                 appSlots.visibility = View.VISIBLE
                 submitSlots(null, requestFocus)
             }
         }
+    }
+
+    /**
+     * Applies the icon size saved for the current tab (each category can have its own) and the
+     * global number of rows. Everything follows the same calculation, so 4K screens get
+     * proportionally bigger tiles instead of tiny ones.
+     */
+    private fun applyGridForTab() {
+        if (!::appSlotAdapter.isInitialized) return
+        val columns = layoutPrefs.getColumnsFor(currentTab)
+        val rows = layoutPrefs.getRows()
+        if (gridLayoutManager.spanCount != columns) gridLayoutManager.spanCount = columns
+        val sizing = buildSizing(columns, rows)
+        if (appSlotAdapter.sizing != sizing) appSlotAdapter.sizing = sizing
+        appSlots.setPadding(
+            resources.getDimensionPixelSize(R.dimen.grid_padding),
+            resources.getDimensionPixelSize(R.dimen.grid_padding),
+            resources.getDimensionPixelSize(R.dimen.grid_padding),
+            resources.getDimensionPixelSize(R.dimen.grid_padding)
+        )
+    }
+
+    private fun refreshAllAppsGrid() {
+        val columns = allAppsColumns()
+        (allAppsList.layoutManager as? GridLayoutManager)?.spanCount = columns
+        allAppsAdapter.notifyDataSetChanged()
     }
 
     // ---- Home grid ----
@@ -594,7 +808,6 @@ class MainActivity : AppCompatActivity() {
     private fun refreshContent(focusKey: String?, requestFocus: Boolean) {
         when (currentTab) {
             TAB_ALL -> refreshAllApps(requestFocus = false)
-            TAB_INPUTS -> Unit
             else -> submitSlots(focusKey, requestFocus)
         }
     }
@@ -667,6 +880,10 @@ class MainActivity : AppCompatActivity() {
         if (!app.isShortcut) {
             options.add(getString(R.string.app_menu_info))
             actions.add { openAppDetails(app.packageName) }
+            options.add(getString(R.string.app_menu_android_settings))
+            actions.add { openAppAndroidSettings(app.packageName) }
+            options.add(getString(R.string.app_menu_permissions))
+            actions.add { openAppPermissions(app.packageName) }
         }
 
         options.add(getString(R.string.remove))
@@ -833,6 +1050,8 @@ class MainActivity : AppCompatActivity() {
         val options = mutableListOf<String>()
         val actions = mutableListOf<() -> Unit>()
 
+        options.add(getString(R.string.category_icon_size))
+        actions.add { showIconSizeDialog(category.id, category.name) }
         options.add(getString(R.string.category_rename))
         actions.add {
             promptCategoryName(R.string.category_rename, category.name) { name ->
@@ -851,8 +1070,6 @@ class MainActivity : AppCompatActivity() {
             options.add(getString(R.string.category_move_down))
             actions.add { moveCategory(category.id, 1) }
         }
-        options.add(getString(R.string.customize_new_category))
-        actions.add { promptNewCategory() }
         if (pinPrefs.isLocked(category.id)) {
             options.add(getString(R.string.category_unlock))
             actions.add {
@@ -967,6 +1184,10 @@ class MainActivity : AppCompatActivity() {
         actions.add { launchApp(row.app) }
         options.add(getString(R.string.all_apps_uninstall))
         actions.add { uninstallApp(row.app) }
+        options.add(getString(R.string.app_menu_android_settings))
+        actions.add { openAppAndroidSettings(row.app.packageName) }
+        options.add(getString(R.string.app_menu_permissions))
+        actions.add { openAppPermissions(row.app.packageName) }
 
         AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
             .setTitle(row.app.getDisplayName())
@@ -1087,6 +1308,11 @@ class MainActivity : AppCompatActivity() {
 
     /** Asks for the PIN and calls [onOk] when it is right. */
     private fun askPin(titleRes: Int, onOk: () -> Unit) {
+        val lockedMs = pinPrefs.lockoutRemainingMs()
+        if (lockedMs > 0L) {
+            Toast.makeText(this, lockoutMessage(lockedMs), Toast.LENGTH_LONG).show()
+            return
+        }
         val input = pinInput()
         val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
             .setTitle(titleRes)
@@ -1095,12 +1321,32 @@ class MainActivity : AppCompatActivity() {
                 if (pinPrefs.verify(input.text.toString())) {
                     onOk()
                 } else {
-                    Toast.makeText(this, R.string.pin_wrong, Toast.LENGTH_SHORT).show()
+                    val wait = pinPrefs.lockoutRemainingMs()
+                    val message = if (wait > 0L) lockoutMessage(wait) else getString(R.string.pin_wrong)
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 }
             }
             .setNegativeButton(R.string.cancel, null)
             .create()
+        protectPinWindow(dialog)
         dialog.show()
+    }
+
+    /** Seconds until the next PIN attempt, in a friendly message. */
+    private fun lockoutMessage(remainingMs: Long): String {
+        val seconds = ((remainingMs + 999L) / 1000L).coerceAtLeast(1L)
+        return getString(R.string.pin_locked, seconds)
+    }
+
+    /**
+     * Blocks screenshots and screen recordings while the PIN is typed, so neither another app
+     * nor an ADB screen capture can read it.
+     */
+    private fun protectPinWindow(dialog: android.app.Dialog) {
+        dialog.window?.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
     }
 
     private fun pinInput(): EditText {
@@ -1129,7 +1375,7 @@ class MainActivity : AppCompatActivity() {
     /** Asks for a new PIN twice and saves it. */
     private fun createPin(onDone: () -> Unit) {
         val first = pinInput()
-        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+        val firstDialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
             .setTitle(R.string.pin_create_title)
             .setView(first)
             .setPositiveButton(R.string.ok) { _, _ ->
@@ -1139,7 +1385,10 @@ class MainActivity : AppCompatActivity() {
                     return@setPositiveButton
                 }
                 val second = pinInput()
-                AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+                val secondDialog = AlertDialog.Builder(
+                    this,
+                    R.style.Theme_TVLauncher_AboutDialog
+                )
                     .setTitle(R.string.pin_confirm_title)
                     .setView(second)
                     .setPositiveButton(R.string.ok) { _, _ ->
@@ -1151,10 +1400,14 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                     .setNegativeButton(R.string.cancel, null)
-                    .show()
+                    .create()
+                protectPinWindow(secondDialog)
+                secondDialog.show()
             }
             .setNegativeButton(R.string.cancel, null)
-            .show()
+            .create()
+        protectPinWindow(firstDialog)
+        firstDialog.show()
     }
 
     private fun changePin() {
@@ -1208,6 +1461,9 @@ class MainActivity : AppCompatActivity() {
             false
         }
         if (ok) {
+            // The backup never carries the PIN itself; drop locks that would otherwise ask for
+            // a PIN that does not exist on this TV.
+            pinPrefs.pruneOrphanLocks()
             Toast.makeText(this, R.string.backup_imported, Toast.LENGTH_LONG).show()
             recreate()
         } else {
@@ -1239,8 +1495,12 @@ class MainActivity : AppCompatActivity() {
         val options = mutableListOf<String>()
         val actions = mutableListOf<() -> Unit>()
 
-        options.add(getString(R.string.customize_icon_size))
+        options.add(getString(R.string.customize_icon_size_tab, tabDisplayName(currentTab)))
         actions.add { showIconSizeDialog() }
+        options.add(getString(R.string.customize_grid_arrangement))
+        actions.add { showGridDialog() }
+        options.add(getString(R.string.customize_icon_shape))
+        actions.add { showIconShapeDialog() }
         options.add(getString(R.string.customize_greeting_size))
         actions.add { showGreetingSizeDialog() }
         options.add(getString(R.string.customize_greeting_text))
@@ -1251,82 +1511,312 @@ class MainActivity : AppCompatActivity() {
             lastGreeting = null
             applyGreeting()
         }
+        options.add(getString(R.string.customize_palette))
+        actions.add { showPaletteDialog() }
+        options.add(stateLabel(R.string.customize_aurora, layoutPrefs.isAuroraEnabled()))
+        actions.add {
+            layoutPrefs.setAuroraEnabled(!layoutPrefs.isAuroraEnabled())
+            applyPalette()
+        }
+        options.add(stateLabel(R.string.customize_auto_messages, layoutPrefs.isAutoMessagesEnabled()))
+        actions.add {
+            layoutPrefs.setAutoMessagesEnabled(!layoutPrefs.isAutoMessagesEnabled())
+            lastGreeting = null
+            applyGreeting()
+        }
+        options.add(getString(R.string.customize_message_kinds))
+        actions.add { showMessageKindsDialog() }
+        options.add(getString(R.string.customize_message_target))
+        actions.add { showMessageTargetDialog() }
+        options.add(stateLabel(R.string.customize_weather, layoutPrefs.isWeatherEnabled()))
+        actions.add {
+            layoutPrefs.setWeatherEnabled(!layoutPrefs.isWeatherEnabled())
+            refreshWeather(force = false)
+        }
         options.add(stateLabel(R.string.customize_most_used, layoutPrefs.isMostUsedEnabled()))
         actions.add {
             layoutPrefs.setMostUsedEnabled(!layoutPrefs.isMostUsedEnabled())
             refreshTopApps()
+            applyGridForTab()
         }
-        options.add(getString(R.string.customize_new_category))
-        actions.add { promptNewCategory() }
         options.add(getString(R.string.customize_wallpaper))
         actions.add { showWallpaperDialog() }
-        options.add(getString(R.string.customize_accessibility))
-        actions.add { showAboutDialog() }
-        options.add(getString(R.string.accessibility_adb_title))
-        actions.add { showAdbHelpDialog() }
         options.add(getString(R.string.customize_sort_az))
         actions.add { sortAppsAlphabetically() }
-        options.add(getString(R.string.customize_add_remove_apps))
-        actions.add { startActivity(Intent(this, AppSelectionActivity::class.java)) }
-        options.add(getString(R.string.customize_free_memory))
-        actions.add { freeMemory() }
-        options.add(getString(R.string.customize_backup_export))
-        actions.add { startExport() }
-        options.add(getString(R.string.customize_backup_import))
-        actions.add { startImport() }
-        if (pinPrefs.hasPin()) {
-            options.add(getString(R.string.pin_change))
-            actions.add { changePin() }
-        }
-        options.add(getString(R.string.customize_last_error))
-        actions.add { showLastErrorDialog() }
+        // Accessibility, backups, memory, logs and cache all live in the advanced settings now.
+        options.add(getString(R.string.advanced_settings))
 
-        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
             .setTitle(R.string.customize_title)
             .setItems(options.toTypedArray()) { _, which ->
-                actions.getOrNull(which)?.invoke()
+                if (which == options.size - 1) {
+                    showAdvancedSettingsDialog()
+                } else {
+                    actions.getOrNull(which)?.invoke()
+                }
             }
             .setNegativeButton(R.string.cancel, null)
-            .show()
+            .create()
+        styleDialog(dialog, widthFraction = 0.46f, maxWidthDp = 620, heightFraction = 0.82f)
+        dialog.show()
     }
 
-    private fun showIconSizeDialog() {
-        val labels = arrayOf(
-            getString(R.string.icon_size_tiny),
-            getString(R.string.icon_size_very_small),
-            getString(R.string.icon_size_small),
-            getString(R.string.icon_size_medium_small),
-            getString(R.string.icon_size_medium),
-            getString(R.string.icon_size_medium_large),
-            getString(R.string.icon_size_large),
-            getString(R.string.icon_size_very_large)
-        )
-        val current = layoutPrefs.getColumns()
-        var checked = ICON_SIZE_COLUMNS.indexOf(current)
-        if (checked < 0) {
-            checked = ICON_SIZE_COLUMNS.indexOf(LayoutPrefs.DEFAULT_COLUMNS)
+    private fun tabDisplayName(key: String): String = when (key) {
+        TAB_HOME -> getString(R.string.tab_home)
+        TAB_ALL -> getString(R.string.tab_all_apps)
+        else -> layoutPrefs.getCategories().firstOrNull { it.id == key }?.name
+            ?: getString(R.string.tab_home)
+    }
+
+    /**
+     * Icon size of one tab, chosen with a bar instead of a long list of words: dragging to the
+     * right makes the icons bigger (fewer per row).
+     */
+    private fun showIconSizeDialog(
+        tabKey: String = currentTab,
+        tabName: String = tabDisplayName(currentTab)
+    ) {
+        val isAllApps = tabKey == TAB_ALL
+        val minColumns = if (isAllApps) ALL_APPS_MIN_COLUMNS else LayoutPrefs.MIN_COLUMNS
+        val maxColumns = if (isAllApps) ALL_APPS_MAX_COLUMNS else LayoutPrefs.MAX_COLUMNS
+        val current = if (isAllApps) allAppsColumns() else layoutPrefs.getColumnsFor(tabKey)
+        val density = resources.displayMetrics.density
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (22 * density).toInt(),
+                (18 * density).toInt(),
+                (22 * density).toInt(),
+                (6 * density).toInt()
+            )
         }
-        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
-            .setTitle(R.string.customize_icon_size)
-            .setSingleChoiceItems(labels, checked) { dialog, which ->
-                dialog.dismiss()
-                applyIconColumns(ICON_SIZE_COLUMNS[which])
+        val valueText = TextView(this).apply {
+            textSize = 15f
+            setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+        }
+        val hint = TextView(this).apply {
+            text = getString(R.string.icon_size_bar_hint)
+            textSize = 11f
+            setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+            setPadding(0, (8 * density).toInt(), 0, 0)
+        }
+        // progress 0 = the most columns (smallest icons); the right side = biggest icons.
+        val seek = SeekBar(this).apply {
+            this.max = maxColumns - minColumns
+            progress = (maxColumns - current).coerceIn(0, this.max)
+        }
+        fun columns(): Int = maxColumns - seek.progress
+        fun updateLabel() {
+            valueText.text = getString(R.string.icon_size_bar_value, columns())
+        }
+        seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) =
+                updateLabel()
+
+            override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+        })
+        updateLabel()
+        container.addView(valueText)
+        container.addView(seek)
+        container.addView(hint)
+
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(getString(R.string.icon_size_title_for, tabName))
+            .setView(container)
+            .setPositiveButton(R.string.apply) { _, _ ->
+                applyIconColumnsForTab(tabKey, columns())
             }
             .setNegativeButton(R.string.cancel, null)
-            .show()
+            .create()
+        styleDialog(dialog, widthFraction = 0.44f, maxWidthDp = 620)
+        dialog.show()
     }
 
-    /** Changes the icon size: fewer columns = bigger icons. Applies immediately. */
-    private fun applyIconColumns(columns: Int) {
-        layoutPrefs.setColumns(columns)
-        val applied = layoutPrefs.getColumns()
+    /** Lines x columns of the whole grid, from 1x2 up to 15x15. */
+    private fun showGridDialog() {
+        val density = resources.displayMetrics.density
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                (22 * density).toInt(),
+                (16 * density).toInt(),
+                (22 * density).toInt(),
+                (6 * density).toInt()
+            )
+        }
+        val columnsText = TextView(this).apply {
+            textSize = 15f
+            setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+        }
+        val columnsBar = SeekBar(this).apply {
+            max = LayoutPrefs.MAX_COLUMNS - LayoutPrefs.MIN_COLUMNS
+            progress = (LayoutPrefs.MAX_COLUMNS - layoutPrefs.getColumns())
+                .coerceIn(0, max)
+        }
+        val rowsText = TextView(this).apply {
+            textSize = 15f
+            setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+            setPadding(0, (14 * density).toInt(), 0, 0)
+        }
+        val rowsBar = SeekBar(this).apply {
+            max = LayoutPrefs.MAX_ROWS - LayoutPrefs.MIN_ROWS
+            progress = (layoutPrefs.getRows() - LayoutPrefs.MIN_ROWS).coerceIn(0, max)
+        }
+        fun columns(): Int = LayoutPrefs.MAX_COLUMNS - columnsBar.progress
+        fun rows(): Int = LayoutPrefs.MIN_ROWS + rowsBar.progress
+        fun updateLabels() {
+            columnsText.text = getString(R.string.grid_columns_value, columns())
+            rowsText.text = getString(R.string.grid_rows_value, rows())
+        }
+        columnsBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) =
+                updateLabels()
+
+            override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+        })
+        rowsBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) =
+                updateLabels()
+
+            override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+        })
+        updateLabels()
+        val hint = TextView(this).apply {
+            text = getString(R.string.grid_arrangement_hint)
+            textSize = 11f
+            setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+            setPadding(0, (10 * density).toInt(), 0, 0)
+        }
+        container.addView(columnsText)
+        container.addView(columnsBar)
+        container.addView(rowsText)
+        container.addView(rowsBar)
+        container.addView(hint)
+
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_grid_arrangement)
+            .setView(container)
+            .setPositiveButton(R.string.apply) { _, _ ->
+                layoutPrefs.setColumns(columns())
+                layoutPrefs.setRows(rows())
+                CrashLog.log(this, "Arranjo da grade: ${columns()} colunas x ${rows()} linhas")
+                // The arrangement is global: every tab starts using the same grid again.
+                layoutPrefs.clearColumnsByTab()
+                applyGridForTab()
+                refreshAllAppsGrid()
+                refreshContent(lastFocusedKey, requestFocus = false)
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .create()
+        styleDialog(dialog, widthFraction = 0.44f, maxWidthDp = 620)
+        dialog.show()
+    }
+
+    /** Changes the icon size of [tabKey] only; applies immediately and keeps the focus. */
+    private fun applyIconColumnsForTab(tabKey: String, columns: Int) {
+        layoutPrefs.setColumnsFor(tabKey, columns)
+        CrashLog.log(this, "Ícones de ${tabDisplayName(tabKey)}: $columns por linha")
+        if (tabKey == TAB_ALL) {
+            refreshAllAppsGrid()
+            return
+        }
         // Icons are rendered at a fixed pixel size, so drop the old ones and redraw.
         appSlotAdapter.currentList.forEach { it.appInfo?.clearIcon() }
         appManager.invalidateAppListCache()
-        gridLayoutManager.spanCount = applied
-        appSlotAdapter.sizing = buildSizing(applied)
-        refreshContent(lastFocusedKey, requestFocus = false)
-        if (currentTab != TAB_ALL) restoreFocus(lastFocusedKey)
+        if (currentTab == tabKey) {
+            applyGridForTab()
+            refreshContent(lastFocusedKey, requestFocus = false)
+            restoreFocus(lastFocusedKey)
+        }
+    }
+
+    private fun showIconShapeDialog() {
+        val labels = IconShapes.ALL.map { it.name }.toTypedArray()
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_icon_shape)
+            .setSingleChoiceItems(labels, layoutPrefs.getIconShape()) { dialog, which ->
+                dialog.dismiss()
+                layoutPrefs.setIconShape(which)
+                applyIconLook()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun showPaletteDialog() {
+        val labels = Palette.ALL.map { it.name }.toTypedArray()
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_palette)
+            .setSingleChoiceItems(labels, layoutPrefs.getPalette()) { dialog, which ->
+                dialog.dismiss()
+                layoutPrefs.setPalette(which)
+                applyPalette()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun showMessageKindsDialog() {
+        val kinds = RandomMessages.Kind.values()
+        val labels = kinds.map { kindLabel(it) }.toTypedArray()
+        val mask = layoutPrefs.getMessageKindsMask()
+        val checked = BooleanArray(kinds.size) { RandomMessages.isEnabled(mask, kinds[it]) }
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_message_kinds)
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setPositiveButton(R.string.done) { _, _ ->
+                val selected = kinds.indices.filter { checked[it] }.map { kinds[it] }.toSet()
+                if (selected.isEmpty()) {
+                    Toast.makeText(
+                        this,
+                        R.string.messages_none_selected,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setPositiveButton
+                }
+                layoutPrefs.setMessageKindsMask(RandomMessages.maskOf(selected))
+                lastGreeting = null
+                applyGreeting()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .create()
+        styleDialog(dialog)
+        dialog.show()
+    }
+
+    private fun showMessageTargetDialog() {
+        val targets = RandomMessages.Target.values()
+        val labels = targets.map { targetLabel(it) }.toTypedArray()
+        val current = targets.indexOf(layoutPrefs.getMessageTarget()).coerceAtLeast(0)
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_message_target)
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                dialog.dismiss()
+                layoutPrefs.setMessageTarget(targets[which])
+                lastGreeting = null
+                applyGreeting()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun kindLabel(kind: RandomMessages.Kind): String = when (kind) {
+        RandomMessages.Kind.MESSAGE -> getString(R.string.messages_kind_message)
+        RandomMessages.Kind.POEM -> getString(R.string.messages_kind_poem)
+        RandomMessages.Kind.JOKE -> getString(R.string.messages_kind_joke)
+    }
+
+    private fun targetLabel(target: RandomMessages.Target): String = when (target) {
+        RandomMessages.Target.ALTERNATE -> getString(R.string.messages_target_alternate)
+        RandomMessages.Target.THIEL -> getString(R.string.messages_target_thiel)
+        RandomMessages.Target.JESSICA -> getString(R.string.messages_target_jessica)
+        RandomMessages.Target.BOTH -> getString(R.string.messages_target_both)
     }
 
     private fun sortAppsAlphabetically() {
@@ -1336,16 +1826,6 @@ class MainActivity : AppCompatActivity() {
         appManager.saveSelectedApps(sorted)
         Toast.makeText(this, R.string.sorted_az_done, Toast.LENGTH_SHORT).show()
         refreshContent(null, requestFocus = false)
-    }
-
-    private fun showLastErrorDialog() {
-        val text = CrashLog.read(this) ?: getString(R.string.last_error_none)
-        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
-            .setTitle(R.string.last_error_title)
-            .setMessage(text)
-            .setPositiveButton(R.string.close, null)
-            .setNeutralButton(R.string.last_error_clear) { _, _ -> CrashLog.clear(this) }
-            .show()
     }
 
     private fun showAdbHelpDialog() {
@@ -1358,27 +1838,9 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Home key accessibility service ----
 
-    /**
-     * Makes sure the Home key service is on. If the app was allowed to write secure settings
-     * (see [AccessibilityEnabler]) it turns the service on by itself; otherwise it asks once per
-     * start of the app to open the Accessibility settings.
-     */
-    private fun ensureHomeOverrideService() {
-        if (!TvHomeOverrideService.isHomeOverrideEnabled(this)) return
-        if (TvHomeOverrideService.isAccessibilityServiceEnabled(this)) return
-        if (AccessibilityEnabler.tryEnable(this)) {
-            Toast.makeText(this, R.string.accessibility_auto_enabled, Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (accessibilityPrompted) return
-        accessibilityPrompted = true
-        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
-            .setTitle(R.string.accessibility_setup_title)
-            .setMessage(R.string.accessibility_setup_message)
-            .setPositiveButton(R.string.accessibility_setup_open) { _, _ -> openAccessibilitySettings() }
-            .setNegativeButton(R.string.accessibility_setup_later, null)
-            .show()
-    }
+    // The launcher never asks for accessibility at start: the Android of some TVs disables the
+    // service right after it is enabled, and the popup would appear on every return. Everything
+    // about it lives in "Configurações avançadas" instead.
 
     // ---- Wallpaper ----
 
@@ -1462,11 +1924,38 @@ class MainActivity : AppCompatActivity() {
 
         // Folder setup
         var selectedFolderUri = WallpaperManager.getFolderUri(this)
-        fun updateFolderText() {
+        fun showFolderLabel() {
             folderButton.text = if (selectedFolderUri.isEmpty()) {
                 getString(R.string.wallpaper_folder_choose)
             } else {
                 getString(R.string.wallpaper_folder_selected, WallpaperManager.labelForTree(selectedFolderUri))
+            }
+        }
+        fun updateFolderText() {
+            val requested = selectedFolderUri
+            if (requested.isEmpty()) {
+                // Photos imported through the fallback picker: no tree URI exists.
+                val local = WallpaperManager.localFolderImageCount(this)
+                folderButton.text = if (local > 0) {
+                    getString(R.string.wallpaper_photos_selected_count, local)
+                } else {
+                    getString(R.string.wallpaper_folder_choose)
+                }
+                return
+            }
+            showFolderLabel()
+            WallpaperManager.countImagesAsync(this, requested) { count ->
+                if (isFinishing || isDestroyed) return@countImagesAsync
+                if (requested != selectedFolderUri) return@countImagesAsync
+                folderButton.text = if (count == 0) {
+                    getString(R.string.wallpaper_folder_empty)
+                } else {
+                    getString(
+                        R.string.wallpaper_folder_selected_count,
+                        WallpaperManager.labelForTree(requested),
+                        count
+                    )
+                }
             }
         }
         updateFolderText()
@@ -1476,14 +1965,17 @@ class MainActivity : AppCompatActivity() {
                 updateFolderText()
             }
             TvHomeOverrideService.pauseOverrideFor(30000)
+            // Many TVs have no system folder picker (DocumentsUI). In that case the user picks
+            // the photos with any file/gallery app that handles pictures, and the launcher keeps
+            // its own copy of them.
             try {
                 folderPicker.launch(null)
             } catch (_: ActivityNotFoundException) {
                 folderPickCallback = null
-                Toast.makeText(this, R.string.wallpaper_folder_no_picker, Toast.LENGTH_LONG).show()
+                launchPhotoMultiPicker()
             } catch (_: Exception) {
                 folderPickCallback = null
-                Toast.makeText(this, R.string.wallpaper_folder_no_picker, Toast.LENGTH_LONG).show()
+                launchPhotoMultiPicker()
             }
         }
 
@@ -1545,32 +2037,49 @@ class MainActivity : AppCompatActivity() {
         customUrlEdit.setText(WallpaperManager.getCustomUrl(this))
         dimSwitch.isChecked = WallpaperManager.isDimOverlayEnabled(this)
 
-        fun saveWallpaperSettings() {
+        fun saveWallpaperSettings(): Boolean {
+            val customUrl = customUrlEdit.text.toString().trim()
+            if (currentMode == WallpaperManager.MODE_CUSTOM && customUrl.isNotEmpty() &&
+                !WallpaperManager.isAllowedRemoteUrl(customUrl)
+            ) {
+                Toast.makeText(this, R.string.wallpaper_https_only, Toast.LENGTH_LONG).show()
+                return false
+            }
             WallpaperManager.setWallpaperMode(this, currentMode)
             WallpaperManager.setCategory(this, categories[selectedCategoryIndex].first)
             WallpaperManager.setInterval(this, intervals[selectedIntervalIndex].first)
-            WallpaperManager.setCustomUrl(this, customUrlEdit.text.toString().trim())
+            WallpaperManager.setCustomUrl(this, customUrl)
             WallpaperManager.setFolderUri(this, selectedFolderUri)
             WallpaperManager.setDimOverlayEnabled(this, dimSwitch.isChecked)
+            return true
         }
 
-        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+        val wallpaperDialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
             .setTitle(R.string.wallpaper_settings)
             .setView(dialogView)
             .setPositiveButton(R.string.done) { _, _ ->
-                saveWallpaperSettings()
-                applyWallpaper(force = true)
+                if (saveWallpaperSettings()) {
+                    applyWallpaper(force = true)
+                }
             }
             .setNeutralButton(R.string.wallpaper_refresh_now) { _, _ ->
-                Toast.makeText(this, R.string.wallpaper_updating, Toast.LENGTH_SHORT).show()
-                saveWallpaperSettings()
-                applyWallpaper(force = true) { success ->
-                    val hint = if (success) R.string.wallpaper_updated else R.string.wallpaper_failed
-                    Toast.makeText(this, hint, Toast.LENGTH_SHORT).show()
+                if (saveWallpaperSettings()) {
+                    Toast.makeText(this, R.string.wallpaper_updating, Toast.LENGTH_SHORT).show()
+                    applyWallpaper(force = true) { success ->
+                        val hint = if (success) R.string.wallpaper_updated else R.string.wallpaper_failed
+                        Toast.makeText(this, hint, Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
             .setNegativeButton(R.string.cancel, null)
-            .show()
+            .create()
+        styleDialog(
+            wallpaperDialog,
+            widthFraction = 0.48f,
+            maxWidthDp = 680,
+            heightFraction = 0.84f
+        )
+        wallpaperDialog.show()
     }
 
     private fun openAppDetails(packageName: String) {
@@ -1585,97 +2094,70 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /** Android app settings (storage, battery, notifications...) of another app. */
+    private fun openAppAndroidSettings(packageName: String) {
+        TvHomeOverrideService.pauseOverrideFor(5000)
+        val intents = listOf(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", packageName, null)
+            },
+            Intent(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS)
+        )
+        for (intent in intents) {
+            try {
+                startActivity(intent)
+                return
+            } catch (_: Exception) {
+            }
+        }
+        Toast.makeText(this, R.string.app_menu_settings_failed, Toast.LENGTH_SHORT).show()
+    }
+
+    /** Goes straight to the Android permission screen of another app when the TV supports it. */
+    private fun openAppPermissions(packageName: String) {
+        TvHomeOverrideService.pauseOverrideFor(5000)
+        val intents = listOf(
+            Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.fromParts("package", packageName, null)
+            ).putExtra(":settings:fragment_args_key", "permissions"),
+            Intent(
+                "android.settings.APPLICATION_DETAILS_SETTINGS",
+                Uri.fromParts("package", packageName, null)
+            )
+        )
+        for (intent in intents) {
+            try {
+                startActivity(intent)
+                return
+            } catch (_: Exception) {
+            }
+        }
+        Toast.makeText(this, R.string.app_menu_settings_failed, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * "Sobre": only the new banner (the launcher already configured), the name and a short
+     * description. The old version/GitHub/photo blocks were removed; everything that changes
+     * something lives in "Configurações avançadas".
+     */
     private fun showAboutDialog() {
-        val versionName = getVersionName()
         val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_about, null)
+        dialogView.findViewById<TextView>(R.id.aboutVersionText).text =
+            getString(R.string.about_version, getVersionName())
+        dialogView.findViewById<TextView>(R.id.aboutMessageText).text =
+            getString(R.string.about_message, getString(R.string.about_tagline))
 
-        val versionText = dialogView.findViewById<TextView>(R.id.aboutVersionText)
-        versionText.text = "v$versionName (FOSS)"
-
-        val cardHomeOverride = dialogView.findViewById<LinearLayout>(R.id.cardHomeOverride)
-        val homeOverrideSwitch = dialogView.findViewById<SwitchCompat>(R.id.homeOverrideSwitch)
-        val isOverrideConfigured = TvHomeOverrideService.isHomeOverrideEnabled(this)
-        val isServiceActive = TvHomeOverrideService.isAccessibilityServiceEnabled(this)
-        homeOverrideSwitch.isChecked = isOverrideConfigured && isServiceActive
-
-        cardHomeOverride.setOnClickListener {
-            homeOverrideSwitch.toggle()
-        }
-
-        homeOverrideSwitch.setOnCheckedChangeListener { _, isChecked ->
-            TvHomeOverrideService.setHomeOverrideEnabled(this, isChecked)
-            if (isChecked) {
-                if (!TvHomeOverrideService.isAccessibilityServiceEnabled(this)) {
-                    Toast.makeText(this, R.string.enable_accessibility_prompt, Toast.LENGTH_LONG).show()
-                    openAccessibilitySettings()
-                }
-            }
-        }
-
-        // 2. Stock Launcher RAM killer switch
-        val cardSuppressRam = dialogView.findViewById<LinearLayout>(R.id.cardSuppressRam)
-        val suppressRamSwitch = dialogView.findViewById<SwitchCompat>(R.id.suppressStockRamSwitch)
-        suppressRamSwitch.isChecked = TvHomeOverrideService.isSuppressStockLauncherEnabled(this)
-
-        cardSuppressRam.setOnClickListener {
-            suppressRamSwitch.toggle()
-        }
-
-        suppressRamSwitch.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked && !TvHomeOverrideService.isSuppressStockLauncherEnabled(this)) {
-                // Confirm before enabling the RAM killer: it stops background
-                // processes of pre-installed TV launchers to free memory.
-                AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
-                    .setTitle(R.string.suppress_stock_ram)
-                    .setMessage(R.string.suppress_stock_ram_confirm)
-                    .setPositiveButton(R.string.enable) { _, _ ->
-                        TvHomeOverrideService.setSuppressStockLauncherEnabled(this, true)
-                        RamOptimizationHelper.suppressStockLauncherRam(applicationContext)
-                    }
-                    .setNegativeButton(R.string.cancel) { _, _ ->
-                        suppressRamSwitch.isChecked = false
-                    }
-                    .show()
-            } else {
-                TvHomeOverrideService.setSuppressStockLauncherEnabled(this, isChecked)
-            }
-        }
-
-        // 3. Auto update switch
-        val cardAutoUpdate = dialogView.findViewById<LinearLayout>(R.id.cardAutoUpdate)
-        val autoUpdateSwitch = dialogView.findViewById<SwitchCompat>(R.id.autoUpdateSwitch)
-
-        if (!BuildConfig.UPDATES_ENABLED) {
-            // F-Droid build: updates are not available here, hide the entire card.
-            cardAutoUpdate.visibility = View.GONE
-        } else {
-            autoUpdateSwitch.isChecked = UpdaterBridge.isAutoUpdateEnabled(this)
-
-            cardAutoUpdate.setOnClickListener {
-                autoUpdateSwitch.toggle()
-            }
-
-            autoUpdateSwitch.setOnCheckedChangeListener { _, isChecked ->
-                UpdaterBridge.setAutoUpdateEnabled(this, isChecked)
-                val hint = if (isChecked) R.string.update_auto_on else R.string.update_auto_off
-                Toast.makeText(this, hint, Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        val builder = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
             .setTitle(R.string.about_title)
             .setView(dialogView)
-            .setPositiveButton(R.string.about_open_github) { _, _ ->
-                openUrl(getString(R.string.github_repo_url))
+            .setPositiveButton(R.string.about_close, null)
+            .setNeutralButton(R.string.advanced_settings) { _, _ ->
+                showAdvancedSettingsDialog()
             }
-            .setNegativeButton(R.string.about_close, null)
-        if (BuildConfig.UPDATES_ENABLED) {
-            // F-Droid build: no in-app update checking.
-            builder.setNeutralButton(R.string.update_check_now) { _, _ ->
-                checkForUpdatesManually()
-            }
-        }
-        builder.show()
+            .create()
+        styleDialog(dialog, widthFraction = 0.62f, maxWidthDp = 900)
+        dialog.show()
     }
 
     private fun openAccessibilitySettings() {
@@ -1692,6 +2174,31 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
             }
         }
+    }
+
+    /** Only shows the updater switch/check in builds that have the updater (github flavor). */
+    private fun showUpdatesDialog() {
+        val enabled = UpdaterBridge.isAutoUpdateEnabled(this)
+        val options = arrayOf(
+            getString(
+                R.string.advanced_updates_auto,
+                getString(if (enabled) R.string.state_on else R.string.state_off)
+            ),
+            getString(R.string.update_check_now)
+        )
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.advanced_updates)
+            .setItems(options) { _, which ->
+                if (which == 0) {
+                    UpdaterBridge.setAutoUpdateEnabled(this, !enabled)
+                    val hint = if (!enabled) R.string.update_auto_on else R.string.update_auto_off
+                    Toast.makeText(this, hint, Toast.LENGTH_SHORT).show()
+                } else {
+                    checkForUpdatesManually()
+                }
+            }
+            .setNegativeButton(R.string.close, null)
+            .show()
     }
 
     private fun checkForUpdatesManually() {
@@ -1732,32 +2239,618 @@ class MainActivity : AppCompatActivity() {
         } ?: BuildConfig.VERSION_NAME
     }
 
-    private fun openUrl(url: String) {
-        try {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-        } catch (_: Exception) {
+    /**
+     * Tile size that fits [columns] x [rows] on the current screen. Both the width and the
+     * height are taken into account, so the same setting looks right on 1080p, 4K and in
+     * portrait; the text always scales with the tile.
+     */
+    private fun calculateSlotSizePx(columns: Int, rows: Int): Int {
+        val displayMetrics = resources.displayMetrics
+        val density = displayMetrics.density
+
+        val hMargin = resources.getDimensionPixelSize(R.dimen.screen_margin_h)
+        val vMargin = resources.getDimensionPixelSize(R.dimen.screen_margin_v)
+        val gridPadding = resources.getDimensionPixelSize(R.dimen.grid_padding)
+        val itemMargin = resources.getDimensionPixelSize(R.dimen.grid_item_margin)
+
+        val totalItemMargins = itemMargin * 2 * columns
+        val availableWidth = displayMetrics.widthPixels - hMargin * 2 - gridPadding * 2 -
+            totalItemMargins
+        val byWidth = availableWidth / columns
+
+        // Approximate height used by the header, greeting, most-used row and paddings.
+        val header = (72 * density).toInt()
+        val greeting = (52 * density).toInt()
+        val mostUsed = if (layoutPrefs.isMostUsedEnabled()) (92 * density).toInt() else 0
+        val availableHeight = displayMetrics.heightPixels - vMargin * 2 - header - greeting -
+            mostUsed - gridPadding * 2
+        val byHeight = availableHeight / rows.coerceAtLeast(1)
+
+        val size = minOf(byWidth, byHeight)
+        val minSize = (34 * density).toInt()
+        val maxSize = (420 * density).toInt()
+        return size.coerceIn(minSize, maxSize)
+    }
+
+    // ---- Search ----
+
+    /** Header search icon: finds any installed app by name, ignoring accents and case. */
+    private fun showSearchDialog() {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_app_search, null)
+        val edit = dialogView.findViewById<EditText>(R.id.searchEdit)
+        val results = dialogView.findViewById<RecyclerView>(R.id.searchResults)
+        val summary = dialogView.findViewById<TextView>(R.id.searchSummary)
+        val empty = dialogView.findViewById<TextView>(R.id.searchEmpty)
+        val apps = appManager.getInstalledApps()
+        val iconPx = (32 * resources.displayMetrics.density).toInt()
+        var dialog: AlertDialog? = null
+
+        val adapter = SearchAdapter(
+            onClick = { app ->
+                dialog?.dismiss()
+                launchApp(app)
+            },
+            iconSizePx = { iconPx }
+        )
+        val columns = if (resources.configuration.orientation ==
+            android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        ) 2 else 1
+        results.layoutManager = GridLayoutManager(this, columns)
+        results.adapter = adapter
+
+        fun update(query: String) {
+            val found = SearchAdapter.filter(apps, query)
+            adapter.submitList(found)
+            empty.visibility = if (found.isEmpty()) View.VISIBLE else View.GONE
+            summary.text = if (query.isBlank()) {
+                getString(R.string.search_suggestions)
+            } else {
+                getString(R.string.search_results_count, found.size)
+            }
+        }
+
+        edit.doAfterTextChanged { update(it?.toString().orEmpty()) }
+        update("")
+        edit.setOnEditorActionListener { _, _, _ ->
+            results.getChildAt(0)?.requestFocus()
+            true
+        }
+
+        dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.search_title)
+            .setView(dialogView)
+            .setNegativeButton(R.string.close, null)
+            .create()
+        val searchDialog = dialog ?: return
+        styleDialog(searchDialog, widthFraction = 0.62f, maxWidthDp = 940, heightFraction = 0.82f)
+        searchDialog.show()
+        edit.requestFocus()
+    }
+
+    // ---- Profile avatar: photo + system dashboard ----
+
+    private fun profilePhotoFile(): File = File(filesDir, "profile_photo.jpg")
+
+    private fun applyProfilePhoto() {
+        val file = profilePhotoFile()
+        val bitmap = if (file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
+        if (bitmap != null) {
+            profileButton.setImageBitmap(bitmap)
+            profileButton.scaleType = ImageView.ScaleType.CENTER_CROP
+            profileButton.setPadding(0, 0, 0, 0)
+        } else {
+            profileButton.scaleType = ImageView.ScaleType.CENTER_INSIDE
+            val pad = (9 * resources.displayMetrics.density).toInt()
+            profileButton.setPadding(pad, pad, pad, pad)
+            profileButton.setImageResource(R.drawable.ic_profile)
         }
     }
 
+    /** Long press on the avatar: pick a photo and keep a small copy inside the launcher. */
+    private fun saveProfilePhoto(uri: Uri) {
+        val saved = try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return
+            var sample = 1
+            while (bounds.outWidth / sample > 1024 || bounds.outHeight / sample > 1024) {
+                sample *= 2
+            }
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            val decoded = contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, options)
+            } ?: return
+            val side = minOf(decoded.width, decoded.height)
+            val cropped = Bitmap.createBitmap(
+                decoded,
+                (decoded.width - side) / 2,
+                (decoded.height - side) / 2,
+                side,
+                side
+            )
+            val output = Bitmap.createScaledBitmap(cropped, 512, 512, true)
+            FileOutputStream(profilePhotoFile()).use { out ->
+                output.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            }
+            if (output !== cropped) output.recycle()
+            if (cropped !== decoded) cropped.recycle()
+            decoded.recycle()
+            true
+        } catch (_: Exception) {
+            false
+        }
+        if (saved) {
+            applyProfilePhoto()
+            CrashLog.log(this, "Foto de perfil atualizada")
+            Toast.makeText(this, R.string.profile_photo_saved, Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, R.string.profile_photo_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
 
-    private fun calculateSlotSizePx(columns: Int): Int {
-        val displayMetrics = resources.displayMetrics
-        val screenWidthPx = displayMetrics.widthPixels
-        val density = displayMetrics.density
+    /**
+     * Click on the avatar: memory, processor, the apps using the most memory, the connection and
+     * the internal storage. Colors: green = normal, yellow = medium, red = high.
+     */
+    private fun showSystemDashboard() {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_system_info, null)
+        val ramText = dialogView.findViewById<TextView>(R.id.sysRamText)
+        val ramBar = dialogView.findViewById<ProgressBar>(R.id.sysRamBar)
+        val cpuText = dialogView.findViewById<TextView>(R.id.sysCpuText)
+        val appsContainer = dialogView.findViewById<LinearLayout>(R.id.sysAppsContainer)
+        val networkText = dialogView.findViewById<TextView>(R.id.sysNetworkText)
+        val storageText = dialogView.findViewById<TextView>(R.id.sysStorageText)
+        val storageBar = dialogView.findViewById<ProgressBar>(R.id.sysStorageBar)
 
-        // Safe area on both sides (56dp each) plus the grid padding and the margin of each tile.
-        val sideMarginPx = (56 * density).toInt() * 2
-        val recyclerPaddingPx = (6 * density).toInt() * 2
-        val itemMarginPx = (8 * density).toInt()
-        val totalItemMarginsPx = itemMarginPx * 2 * columns
+        ramText.text = getString(R.string.dashboard_loading)
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.dashboard_title)
+            .setView(dialogView)
+            .setPositiveButton(R.string.close, null)
+            .setNeutralButton(R.string.dashboard_refresh) { _, _ -> showSystemDashboard() }
+            .create()
+        styleDialog(dialog, widthFraction = 0.6f, maxWidthDp = 860, heightFraction = 0.85f)
 
-        val availablePx = screenWidthPx - sideMarginPx - recyclerPaddingPx - totalItemMarginsPx
-        val rawSize = availablePx / columns
-        // 5 columns gives the original tile (up to 130dp). Fewer columns allow bigger tiles,
-        // more columns smaller ones.
-        val maxSize = (650f / columns * density).toInt()
-        val minSize = minOf((60 * density).toInt(), maxSize)
-        return rawSize.coerceIn(minSize, maxSize)
+        fun render(snapshot: SystemStats.Snapshot) {
+            if (isFinishing || isDestroyed) return
+            val usedPercent = if (snapshot.ramTotalBytes > 0) {
+                ((snapshot.ramUsedBytes * 100) / snapshot.ramTotalBytes).toInt()
+            } else 0
+            ramText.text = getString(
+                R.string.dashboard_ram_value,
+                SystemStats.formatBytes(snapshot.ramUsedBytes),
+                SystemStats.formatBytes(snapshot.ramTotalBytes),
+                SystemStats.formatBytes(snapshot.ramAvailableBytes),
+                usedPercent
+            )
+            ramBar.progress = usedPercent
+            ramBar.progressTintList = ColorStateList.valueOf(
+                SystemStats.colorForPercent(this, usedPercent)
+            )
+            cpuText.text = getString(R.string.dashboard_cpu_value, snapshot.cpuPercent)
+
+            appsContainer.removeAllViews()
+            if (snapshot.apps.isEmpty()) {
+                appsContainer.addView(TextView(this).apply {
+                    text = getString(R.string.dashboard_apps_hidden)
+                    setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+                    textSize = 12f
+                })
+            } else {
+                val density = resources.displayMetrics.density
+                snapshot.apps.forEach { usage ->
+                    val row = LinearLayout(this).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        setPadding(0, (5 * density).toInt(), 0, (5 * density).toInt())
+                    }
+                    val dot = View(this).apply {
+                        background = android.graphics.drawable.GradientDrawable().apply {
+                            shape = android.graphics.drawable.GradientDrawable.OVAL
+                            setColor(SystemStats.colorForPercent(this@MainActivity, usage.percent))
+                        }
+                        layoutParams = LinearLayout.LayoutParams(
+                            (10 * density).toInt(),
+                            (10 * density).toInt()
+                        )
+                    }
+                    val label = TextView(this).apply {
+                        text = usage.label
+                        setTextColor(ContextCompat.getColor(context, R.color.text_primary))
+                        textSize = 14f
+                        maxLines = 1
+                        ellipsize = android.text.TextUtils.TruncateAt.END
+                        layoutParams = LinearLayout.LayoutParams(
+                            0,
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            1f
+                        )
+                        setPadding((10 * density).toInt(), 0, (8 * density).toInt(), 0)
+                    }
+                    val value = TextView(this).apply {
+                        text = if (usage.memoryBytes > 0) {
+                            getString(
+                                R.string.dashboard_app_usage,
+                                usage.percent,
+                                SystemStats.formatBytes(usage.memoryBytes)
+                            )
+                        } else {
+                            getString(R.string.dashboard_app_usage_short, usage.percent)
+                        }
+                        setTextColor(SystemStats.colorForPercent(context, usage.percent))
+                        textSize = 13f
+                    }
+                    row.addView(dot)
+                    row.addView(label)
+                    row.addView(value)
+                    appsContainer.addView(row)
+                }
+            }
+
+            val net = snapshot.network
+            networkText.text = if (!net.connected) {
+                getString(R.string.dashboard_network_offline)
+            } else {
+                val type = when (net.type) {
+                    "wifi" -> getString(R.string.dashboard_network_wifi)
+                    "ethernet" -> getString(R.string.dashboard_network_ethernet)
+                    "mobile" -> getString(R.string.dashboard_network_mobile)
+                    else -> getString(R.string.dashboard_network_other)
+                }
+                getString(
+                    R.string.dashboard_network_value,
+                    type,
+                    net.name,
+                    net.ip.ifEmpty { "-" },
+                    SystemStats.formatBytes(net.rxBytes),
+                    SystemStats.formatBytes(net.txBytes)
+                )
+            }
+
+            val storage = snapshot.storage
+            val storagePercent = if (storage.totalBytes > 0) {
+                ((storage.usedBytes * 100) / storage.totalBytes).toInt()
+            } else 0
+            storageText.text = getString(
+                R.string.dashboard_storage_value,
+                SystemStats.formatBytes(storage.totalBytes),
+                SystemStats.formatBytes(storage.usedBytes),
+                SystemStats.formatBytes(storage.freeBytes),
+                storagePercent
+            )
+            storageBar.progress = storagePercent
+            storageBar.progressTintList = ColorStateList.valueOf(
+                SystemStats.colorForPercent(this, storagePercent)
+            )
+        }
+
+        dialog.show()
+        Thread {
+            val snapshot = SystemStats.snapshot(applicationContext)
+            runOnUiThread { render(snapshot) }
+        }.start()
+    }
+
+    // ---- Advanced settings ----
+
+    private fun showAdvancedSettingsDialog() {
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+
+        options.add(getString(R.string.advanced_accessibility))
+        actions.add { showAccessibilityDialog() }
+        options.add(getString(R.string.advanced_default_launcher))
+        actions.add { requestDefaultLauncher() }
+        options.add(getString(R.string.customize_free_memory))
+        actions.add { confirmFreeMemory() }
+        options.add(getString(R.string.customize_backup_export))
+        actions.add { startExport() }
+        options.add(getString(R.string.customize_backup_import))
+        actions.add { startImport() }
+        options.add(getString(R.string.advanced_event_log))
+        actions.add { showEventLogDialog() }
+        if (BuildConfig.UPDATES_ENABLED) {
+            options.add(getString(R.string.advanced_updates))
+            actions.add { showUpdatesDialog() }
+        }
+        options.add(getString(R.string.advanced_clear_cache))
+        actions.add { confirmClearCache() }
+        options.add(stateLabel(
+            R.string.suppress_stock_ram,
+            TvHomeOverrideService.isSuppressStockLauncherEnabled(this)
+        ))
+        actions.add {
+            val enabling = !TvHomeOverrideService.isSuppressStockLauncherEnabled(this)
+            if (enabling) {
+                AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+                    .setTitle(R.string.suppress_stock_ram)
+                    .setMessage(R.string.suppress_stock_ram_confirm)
+                    .setPositiveButton(R.string.enable) { _, _ ->
+                        TvHomeOverrideService.setSuppressStockLauncherEnabled(this, true)
+                        RamOptimizationHelper.suppressStockLauncherRam(applicationContext)
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .show()
+            } else {
+                TvHomeOverrideService.setSuppressStockLauncherEnabled(this, false)
+            }
+        }
+        if (pinPrefs.hasPin()) {
+            options.add(getString(R.string.pin_change))
+            actions.add { changePin() }
+        }
+
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.advanced_title)
+            .setItems(options.toTypedArray()) { _, which ->
+                actions.getOrNull(which)?.invoke()
+            }
+            .setNegativeButton(R.string.close, null)
+            .show()
+    }
+
+    /** Accessibility + Home key help, without ever showing a popup when the launcher starts. */
+    private fun showAccessibilityDialog() {
+        val serviceOn = TvHomeOverrideService.isAccessibilityServiceEnabled(this)
+        val overrideOn = TvHomeOverrideService.isHomeOverrideEnabled(this)
+        val status = getString(
+            R.string.advanced_accessibility_status,
+            getString(if (serviceOn) R.string.state_on else R.string.state_off),
+            getString(if (overrideOn) R.string.state_on else R.string.state_off)
+        ) + "\n\n" + getString(R.string.advanced_accessibility_why)
+
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+        options.add(
+            getString(
+                if (overrideOn) R.string.advanced_home_disable else R.string.advanced_home_enable
+            )
+        )
+        actions.add {
+            TvHomeOverrideService.setHomeOverrideEnabled(this, !overrideOn)
+            CrashLog.log(this, "Botão Home: ${if (!overrideOn) "ligado" else "desligado"}")
+        }
+        options.add(getString(R.string.advanced_open_accessibility))
+        actions.add { openAccessibilitySettings() }
+        options.add(getString(R.string.advanced_enable_automatically))
+        actions.add {
+            if (AccessibilityEnabler.tryEnable(this)) {
+                Toast.makeText(this, R.string.accessibility_auto_enabled, Toast.LENGTH_SHORT)
+                    .show()
+                CrashLog.log(this, "Acessibilidade ativada automaticamente")
+            } else {
+                showAdbHelpDialog()
+            }
+        }
+        options.add(getString(R.string.advanced_accessibility_help))
+        actions.add { showAdbHelpDialog() }
+
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.advanced_accessibility)
+            .setMessage(status)
+            .setItems(options.toTypedArray()) { _, which ->
+                actions.getOrNull(which)?.invoke()
+            }
+            .setNegativeButton(R.string.close, null)
+            .show()
+    }
+
+    /** Asks Android to make this launcher the default Home app. */
+    @Suppress("DEPRECATION")
+    private fun requestDefaultLauncher() {
+        TvHomeOverrideService.pauseOverrideFor(8000)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            try {
+                val roleManager = getSystemService(RoleManager::class.java)
+                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                    if (roleManager.isRoleHeld(RoleManager.ROLE_HOME)) {
+                        Toast.makeText(this, R.string.advanced_already_default, Toast.LENGTH_SHORT)
+                            .show()
+                        return
+                    }
+                    startActivityForResult(
+                        roleManager.createRequestRoleIntent(RoleManager.ROLE_HOME),
+                        REQUEST_HOME_ROLE
+                    )
+                    return
+                }
+            } catch (_: Exception) {
+            }
+        }
+        val intents = listOf(
+            Intent(Settings.ACTION_HOME_SETTINGS),
+            Intent("android.settings.HOME_SETTINGS"),
+            Intent(Settings.ACTION_SETTINGS)
+        )
+        for (intent in intents) {
+            try {
+                startActivity(intent)
+                return
+            } catch (_: Exception) {
+            }
+        }
+        Toast.makeText(this, R.string.advanced_default_unavailable, Toast.LENGTH_LONG).show()
+    }
+
+    /** Result of the system "default Home app" role dialog, so the user knows if it worked. */
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_HOME_ROLE) return
+        if (isDefaultLauncher()) {
+            Toast.makeText(this, R.string.advanced_default_granted, Toast.LENGTH_LONG).show()
+            CrashLog.log(this, "Launcher definida como padrão do sistema")
+        } else {
+            Toast.makeText(this, R.string.advanced_default_denied, Toast.LENGTH_LONG).show()
+            CrashLog.log(this, "Troca de launcher padrão não concluída")
+        }
+    }
+
+    private fun confirmFreeMemory() {
+        val before = RamOptimizationHelper.availableMemoryMb(this)
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_free_memory)
+            .setMessage(getString(R.string.free_memory_confirm, before))
+            .setPositiveButton(R.string.ok) { _, _ -> freeMemory() }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun showEventLogDialog() {
+        val text = buildEventLogText()
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.advanced_event_log)
+            .setMessage(text + "\n\n" + getString(R.string.event_log_tip))
+            .setPositiveButton(R.string.event_log_save) { _, _ ->
+                try {
+                    logExportPicker.launch("tj-tv-launcher-log.txt")
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(this, R.string.backup_no_picker, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNeutralButton(R.string.event_log_clear) { _, _ ->
+                CrashLog.clear(this)
+                Toast.makeText(this, R.string.event_log_cleared, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(R.string.close, null)
+            .create()
+        styleDialog(dialog, widthFraction = 0.62f, maxWidthDp = 960, heightFraction = 0.85f)
+        dialog.show()
+    }
+
+    /**
+     * Everything a person needs to understand a problem later: launcher version, TV model,
+     * Android version, current settings, memory/storage/network and the recorded events.
+     */
+    private fun buildEventLogText(): String {
+        val builder = StringBuilder()
+        builder.appendLine("TJ TV Launcher - log de eventos")
+        builder.appendLine("Gerado em: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())}")
+        builder.appendLine("Versão: ${getVersionName()}")
+        builder.appendLine("Pacote: $packageName")
+        builder.appendLine("TV: ${Build.MANUFACTURER} ${Build.MODEL}")
+        builder.appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
+        builder.appendLine("Tela: ${resources.displayMetrics.widthPixels}x${resources.displayMetrics.heightPixels} @ ${resources.displayMetrics.density}x")
+        builder.appendLine("Aba atual: ${tabDisplayName(currentTab)}")
+        builder.appendLine("Botão Home: acessibilidade=${TvHomeOverrideService.isAccessibilityServiceEnabled(this)}, override=${TvHomeOverrideService.isHomeOverrideEnabled(this)}")
+        builder.appendLine("Launcher padrão: ${if (isDefaultLauncher()) "sim" else "não"}")
+        builder.appendLine("Grade: ${layoutPrefs.getColumnsFor(currentTab)} colunas x ${layoutPrefs.getRows()} linhas")
+        builder.appendLine("Categorias: ${layoutPrefs.getCategories().size}")
+        builder.appendLine("Papel de parede: ${WallpaperManager.getWallpaperMode(this)}")
+        builder.appendLine("Memória livre: ${RamOptimizationHelper.availableMemoryMb(this)} MB")
+        try {
+            val stat = StatFs(Environment.getDataDirectory().absolutePath)
+            val total = stat.blockCountLong * stat.blockSizeLong
+            val free = stat.availableBlocksLong * stat.blockSizeLong
+            builder.appendLine("Armazenamento: ${SystemStats.formatBytes(total - free)} usados de ${SystemStats.formatBytes(total)}")
+        } catch (_: Exception) {
+        }
+        builder.appendLine()
+        builder.appendLine("Último erro:")
+        builder.appendLine(CrashLog.read(this) ?: "nenhum")
+        builder.appendLine()
+        builder.appendLine("Eventos:")
+        builder.appendLine(CrashLog.readEvents(this).ifBlank { "nenhum evento registrado" })
+        return builder.toString()
+    }
+
+    private fun writeEventLog(uri: Uri) {
+        val ok = try {
+            contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(buildEventLogText().toByteArray(Charsets.UTF_8))
+            } != null
+        } catch (_: Exception) {
+            false
+        }
+        Toast.makeText(
+            this,
+            if (ok) R.string.event_log_saved else R.string.backup_write_failed,
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    private fun isDefaultLauncher(): Boolean {
+        return try {
+            val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+            val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.resolveActivity(
+                    intent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong())
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
+            }
+            resolved?.activityInfo?.packageName == packageName
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun confirmClearCache() {
+        val size = cacheSizeBytes()
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.advanced_clear_cache)
+            .setMessage(getString(R.string.clear_cache_confirm, SystemStats.formatBytes(size)))
+            .setPositiveButton(R.string.ok) { _, _ -> clearLauncherCache() }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    /** Only cache: preferences, categories, PIN, profile photo and wallpapers are untouched. */
+    private fun clearLauncherCache() {
+        val before = cacheSizeBytes()
+        try {
+            cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+            externalCacheDir?.listFiles()?.forEach { it.deleteRecursively() }
+        } catch (_: Exception) {
+        }
+        appManager.clearCache()
+        val after = cacheSizeBytes()
+        val freed = (before - after).coerceAtLeast(0L)
+        CrashLog.log(this, "Cache limpo: ${SystemStats.formatBytes(freed)}")
+        Toast.makeText(
+            this,
+            getString(R.string.clear_cache_done, SystemStats.formatBytes(freed)),
+            Toast.LENGTH_LONG
+        ).show()
+        applyWallpaper(force = true)
+    }
+
+    private fun cacheSizeBytes(): Long {
+        fun sizeOf(dir: File?): Long {
+            if (dir == null || !dir.exists()) return 0L
+            return try {
+                dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            } catch (_: Exception) {
+                0L
+            }
+        }
+        return sizeOf(cacheDir) + sizeOf(externalCacheDir)
+    }
+
+    /** Used when the TV does not have the system folder picker. */
+    private fun launchPhotoMultiPicker() {
+        try {
+            folderPhotosPicker.launch("image/*")
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.wallpaper_folder_no_picker, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun importFolderPhotos(uris: List<Uri>) {
+        val saved = WallpaperManager.savePickedImages(this, uris)
+        if (saved > 0) {
+            CrashLog.log(this, "Papel de parede: $saved fotos importadas")
+            Toast.makeText(
+                this,
+                getString(R.string.wallpaper_photos_saved, saved),
+                Toast.LENGTH_LONG
+            ).show()
+            applyWallpaper(force = true)
+        } else {
+            Toast.makeText(this, R.string.wallpaper_failed, Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun openAndroidSettings() {
@@ -1787,7 +2880,6 @@ class MainActivity : AppCompatActivity() {
         RamOptimizationHelper.suppressStockLauncherRam(applicationContext)
         mainHandler.removeCallbacks(wallpaperTicker)
         mainHandler.postDelayed(wallpaperTicker, WALLPAPER_CHECK_MS)
-        ensureHomeOverrideService()
     }
 
     override fun onPause() {
@@ -1817,17 +2909,19 @@ class MainActivity : AppCompatActivity() {
         private const val TAB_HOME = "tab:home"
         private const val TAB_ALL = "tab:all"
         private const val TAB_NEW = "tab:new"
-        private const val TAB_INPUTS = "tab:inputs"
         private const val TOP_APPS_LIMIT = 6
 
+        /** "All apps" is a compact list, so it allows fewer columns than the home grid. */
         private const val ALL_APPS_COLUMNS = 2
+        private const val ALL_APPS_MIN_COLUMNS = 2
+        private const val ALL_APPS_MAX_COLUMNS = 8
         private const val WALLPAPER_CHECK_MS = 15_000L
+        private const val WEATHER_UI_REFRESH_MS = 30 * 60 * 1000L
 
-        /** Asked once per start of the app, so a TV that keeps switching the service off is not nagged. */
-        @Volatile
-        private var accessibilityPrompted = false
+        /** Holding OK on the Home key for this long opens the running apps. */
+        const val HOME_LONG_PRESS_MS = 700L
 
-        /** Icons per row for each icon size option, from the smallest to the biggest icons. */
-        private val ICON_SIZE_COLUMNS = intArrayOf(10, 8, 7, 6, LayoutPrefs.DEFAULT_COLUMNS, 4, 3, 2)
+        /** Request code for the Android "default Home app" role dialog. */
+        private const val REQUEST_HOME_ROLE = 4242
     }
 }

@@ -32,14 +32,25 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <!-- Soft coloured glow (palette) drawn above the wallpaper and below the apps -->
+    <com.tvlauncher.AuroraView
+        android:id="@+id/auroraView"
+        android:layout_width="0dp"
+        android:layout_height="0dp"
+        android:visibility="gone"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
     <!-- Everything lives inside a safe area, away from the screen borders (TV overscan) -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:layout_marginStart="56dp"
-        android:layout_marginTop="32dp"
-        android:layout_marginEnd="56dp"
-        android:layout_marginBottom="32dp"
+        android:layout_marginStart="@dimen/screen_margin_h"
+        android:layout_marginTop="@dimen/screen_margin_v"
+        android:layout_marginEnd="@dimen/screen_margin_h"
+        android:layout_marginBottom="@dimen/screen_margin_v"
         android:orientation="vertical"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
@@ -52,6 +63,20 @@
             android:layout_height="wrap_content"
             android:gravity="center_vertical"
             android:orientation="horizontal">
+
+            <!-- Profile: long press to add your own photo, OK shows system usage -->
+            <ImageButton
+                android:id="@+id/profileButton"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/profile_background"
+                android:clickable="true"
+                android:contentDescription="@string/profile_title"
+                android:focusable="true"
+                android:padding="9dp"
+                android:scaleType="centerCrop"
+                android:src="@drawable/ic_profile" />
 
             <HorizontalScrollView
                 android:id="@+id/tabScroll"
@@ -76,50 +101,91 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="16dp"
-                android:gravity="end"
-                android:orientation="vertical">
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-                <TextClock
-                    android:id="@+id/clockText"
+                <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:fontFamily="sans-serif-medium"
-                    android:format12Hour="h:mm a"
-                    android:format24Hour="HH:mm"
-                    android:textColor="@color/text_primary"
-                    android:textSize="18sp" />
+                    android:gravity="end"
+                    android:orientation="vertical">
 
-                <TextClock
-                    android:id="@+id/dateText"
+                    <TextClock
+                        android:id="@+id/clockText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-medium"
+                        android:format12Hour="h:mm a"
+                        android:format24Hour="HH:mm"
+                        android:textColor="@color/text_primary"
+                        android:textSize="18sp" />
+
+                    <TextClock
+                        android:id="@+id/dateText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:format12Hour="EEE, d MMM"
+                        android:format24Hour="EEE, d MMM"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <!-- Weather for Belém - PA (Terra Firme); opens the week forecast when clicked -->
+                <LinearLayout
+                    android:id="@+id/weatherBox"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:format12Hour="EEE, d MMM"
-                    android:format24Hour="EEE, d MMM"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="11sp" />
+                    android:layout_marginStart="14dp"
+                    android:background="@drawable/header_button_background"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="12dp"
+                    android:paddingTop="6dp"
+                    android:paddingEnd="12dp"
+                    android:paddingBottom="6dp"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:id="@+id/weatherIcon"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:contentDescription="@null"
+                        android:scaleType="fitCenter" />
+
+                    <TextView
+                        android:id="@+id/weatherText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:maxLines="1"
+                        android:textColor="@color/text_primary"
+                        android:textSize="12sp" />
+                </LinearLayout>
             </LinearLayout>
 
             <ImageButton
-                android:id="@+id/customizeButton"
+                android:id="@+id/searchButton"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:layout_marginStart="14dp"
                 android:background="@drawable/header_button_background"
                 android:clickable="true"
-                android:contentDescription="@string/customize_title"
+                android:contentDescription="@string/search_apps"
                 android:focusable="true"
-                android:src="@drawable/ic_tune" />
+                android:src="@drawable/ic_search" />
 
             <ImageButton
-                android:id="@+id/wallpaperButton"
+                android:id="@+id/customizeButton"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/header_button_background"
                 android:clickable="true"
-                android:contentDescription="@string/wallpaper_settings"
+                android:contentDescription="@string/customize_title"
                 android:focusable="true"
-                android:src="@drawable/ic_wallpaper" />
+                android:src="@drawable/ic_tune" />
 
             <ImageButton
                 android:id="@+id/settingsButton"
@@ -183,15 +249,6 @@
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/allApps"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:clipToPadding="false"
-                android:padding="4dp"
-                android:visibility="gone"
-                tools:listitem="@layout/item_all_app" />
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/inputsList"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:clipToPadding="false"

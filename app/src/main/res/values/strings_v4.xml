@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Strings added in version 4.0 (search, avatar dashboard, advanced settings, recents). -->
+<resources>
+    <string name="apply">Aplicar</string>
+
+    <!-- Sobre -->
+    <string name="about_version">Versão %1$s</string>
+    <string name="search_apps">Buscar apps</string>
+    <string name="pin_locked">Muitas tentativas erradas. Aguarde %1$d segundos e tente de novo.</string>
+    <string name="wallpaper_https_only">Por segurança, o link do papel de parede precisa começar com https://.</string>
+
+    <!-- Busca de apps -->
+    <string name="search_apps_hint">Digite o nome do app</string>
+    <string name="search_title">Buscar apps</string>
+    <string name="search_suggestions">Sugestões</string>
+    <string name="search_no_results">Nenhum app encontrado com esse nome.</string>
+    <string name="search_results_count">%1$d apps encontrados</string>
+
+    <!-- Tamanho dos ícones e arranjo -->
+    <string name="customize_icon_size_tab">Tamanho dos ícones (%1$s)</string>
+    <string name="icon_size_title_for">Tamanho dos ícones: %1$s</string>
+    <string name="icon_size_bar_hint">Arraste para a direita para aumentar os ícones e para a esquerda para diminuir.</string>
+    <string name="icon_size_bar_value">%1$d ícones por linha</string>
+    <string name="category_icon_size">Tamanho dos ícones desta categoria</string>
+    <string name="customize_grid_arrangement">Arranjo dos ícones (linhas x colunas)</string>
+    <string name="grid_columns_value">Colunas: %1$d</string>
+    <string name="grid_rows_value">Linhas: %1$d</string>
+    <string name="grid_arrangement_hint">Este arranjo vale para todas as abas. Máximo de 15 linhas por 15 colunas. Os tamanhos dos ícones e dos textos acompanham o arranjo.</string>
+
+    <!-- Avatar e painel do sistema -->
+    <string name="profile_title">Perfil</string>
+    <string name="profile_photo_saved">Foto de perfil salva.</string>
+    <string name="profile_photo_failed">Não foi possível usar essa imagem.</string>
+    <string name="dashboard_title">Sistema da TV</string>
+    <string name="dashboard_loading">Lendo os dados da TV...</string>
+    <string name="dashboard_memory">MEMÓRIA RAM</string>
+    <string name="dashboard_ram_value">%1$s de %2$s em uso · %3$s livre (%4$d%%)</string>
+    <string name="dashboard_cpu_value">Processador da TV: %1$d%% em uso</string>
+    <string name="dashboard_apps">APPS QUE MAIS CONSOMEM AGORA</string>
+    <string name="dashboard_apps_hidden">Esta TV não mostra o consumo de outros apps. A lista acima usa os apps mais abertos pela launcher.</string>
+    <string name="dashboard_app_usage">%1$d%% · %2$s</string>
+    <string name="dashboard_app_usage_short">%1$d%% de uso</string>
+    <string name="dashboard_network">CONEXÃO</string>
+    <string name="dashboard_network_offline">Sem conexão no momento.</string>
+    <string name="dashboard_network_wifi">Wi-Fi</string>
+    <string name="dashboard_network_ethernet">Cabo</string>
+    <string name="dashboard_network_mobile">Dados móveis</string>
+    <string name="dashboard_network_other">Outra</string>
+    <string name="dashboard_network_value">%1$s · %2$s\nIP: %3$s\nRecebido: %4$s · Enviado: %5$s</string>
+    <string name="dashboard_storage">ARMAZENAMENTO INTERNO</string>
+    <string name="dashboard_storage_value">Total: %1$s · Em uso: %2$s · Livre: %3$s (%4$d%% usado)</string>
+    <string name="dashboard_refresh">Atualizar</string>
+
+    <!-- Configurações avançadas -->
+    <string name="advanced_settings">Configurações avançadas</string>
+    <string name="advanced_title">Configurações avançadas</string>
+    <string name="advanced_accessibility">Acessibilidade e botão Home</string>
+    <string name="advanced_accessibility_status">Serviço de acessibilidade: %1$s\nCaptura do botão Home: %2$s</string>
+    <string name="advanced_accessibility_why">Em algumas TVs o Android desliga o serviço de acessibilidade assim que ele é ativado. Isso impede o botão Home de abrir esta launcher. A solução definitiva é liberar uma vez a permissão de configurações seguras por ADB; depois a launcher religa o serviço sozinha.</string>
+    <string name="advanced_home_enable">Ligar a captura do botão Home</string>
+    <string name="advanced_home_disable">Desligar a captura do botão Home</string>
+    <string name="advanced_open_accessibility">Abrir as configurações de acessibilidade</string>
+    <string name="advanced_enable_automatically">Tentar ativar automaticamente</string>
+    <string name="advanced_accessibility_help">Como corrigir por ADB</string>
+    <string name="advanced_default_launcher">Forçar esta launcher como padrão do sistema</string>
+    <string name="advanced_already_default">Esta launcher já é a padrão do sistema.</string>
+    <string name="advanced_default_unavailable">Esta TV não tem a tela de escolha da launcher padrão. Abra as configurações do Android e escolha a launcher em Aplicativos padrão.</string>
+    <string name="free_memory_confirm">Esta opção encerra os processos em segundo plano de apps instalados (e das launchers originais da TV) para liberar memória. Nada é desinstalado e seus dados continuam salvos. A launcher atual nunca é encerrada.\n\nMemória livre agora: %1$d MB.\n\nDeseja continuar?</string>
+    <string name="advanced_event_log">Log de eventos</string>
+    <string name="advanced_updates">Atualizações do app</string>
+    <string name="advanced_updates_auto">Atualizações semanais automáticas: %1$s</string>
+    <string name="advanced_default_granted">Pronto: a TJ TV Launcher agora é a launcher padrão.</string>
+    <string name="advanced_default_denied">A TV não trocou a launcher padrão. Você pode tentar de novo ou escolher em Aplicativos padrão nas configurações do Android.</string>
+    <string name="event_log_save">Salvar TXT</string>
+    <string name="event_log_tip">O log inclui versão, modelo da TV, Android, tela, aba atual, botão Home, launcher padrão, grade, categorias, papel de parede, memória, armazenamento, último erro e os eventos registrados. Ao pedir ajuda, salve o TXT logo depois do problema e informe o que estava fazendo.</string>
+    <string name="event_log_clear">Limpar</string>
+    <string name="event_log_cleared">Log de eventos apagado.</string>
+    <string name="event_log_saved">Log salvo no arquivo.</string>
+    <string name="advanced_clear_cache">Limpeza de cache</string>
+    <string name="clear_cache_confirm">Serão apagados apenas arquivos temporários da launcher (cache de imagens e de ícones). Categorias, PIN, foto de perfil, backups e dados dos outros apps não são alterados.\n\nCache atual: %1$s.\n\nDeseja continuar?</string>
+    <string name="clear_cache_done">Cache limpo: %1$s liberados.</string>
+
+    <!-- Menu dos apps -->
+    <string name="app_menu_android_settings">Configurações do Android do app</string>
+    <string name="app_menu_permissions">Permissões do app</string>
+    <string name="app_menu_settings_failed">Não foi possível abrir as configurações deste app nesta TV.</string>
+
+    <!-- Apps abertos (segurar Home) -->
+    <string name="recents_title">Apps abertos</string>
+    <string name="recents_hint">Selecione um app para encerrá-lo. A launcher e os apps do sistema não aparecem aqui.</string>
+    <string name="recents_loading">Procurando apps abertos...</string>
+    <string name="recents_none">Nenhum app aberto encontrado.</string>
+    <string name="recents_end">Encerrar</string>
+    <string name="recents_end_all">Encerrar todos</string>
+    <string name="recents_ended">%1$s encerrado.</string>
+    <string name="recents_all_ended">Todos os apps abertos foram encerrados.</string>
+
+    <!-- Papel de parede: fotos escolhidas quando a TV não tem seletor de pastas -->
+    <string name="wallpaper_photos_saved">%1$d fotos salvas. O papel de parede vai alternar entre elas.</string>
+    <string name="wallpaper_photos_selected_count">%1$d fotos escolhidas</string>
+</resources>

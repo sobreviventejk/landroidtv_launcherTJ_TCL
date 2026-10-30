@@ -76,12 +76,65 @@ class LayoutPrefs(context: Context) {
         }
     }
 
-    /** Icons per row: more columns = smaller icons. */
+    /** Icons per row: more columns = smaller icons. Used as the default for every tab. */
     fun getColumns(): Int =
         prefs.getInt(KEY_COLUMNS, DEFAULT_COLUMNS).coerceIn(MIN_COLUMNS, MAX_COLUMNS)
 
     fun setColumns(columns: Int) {
         prefs.edit().putInt(KEY_COLUMNS, columns.coerceIn(MIN_COLUMNS, MAX_COLUMNS)).apply()
+    }
+
+    /**
+     * Icons per row of one tab ("tab:home", a category id or "tab:all"). Each tab can have its
+     * own icon size; tabs without a saved value follow [getColumns].
+     */
+    fun getColumnsFor(tabKey: String): Int {
+        val saved = readColumnsByTab()[tabKey] ?: return getColumns()
+        return saved.coerceIn(MIN_COLUMNS, MAX_COLUMNS)
+    }
+
+    /** True when [tabKey] has its own icon size (instead of following the default). */
+    fun hasColumnsFor(tabKey: String): Boolean = readColumnsByTab().containsKey(tabKey)
+
+    fun setColumnsFor(tabKey: String, columns: Int) {
+        val map = readColumnsByTab().toMutableMap()
+        map[tabKey] = columns.coerceIn(MIN_COLUMNS, MAX_COLUMNS)
+        writeColumnsByTab(map)
+    }
+
+    /** Makes every tab use the same icon size again. */
+    fun clearColumnsByTab() {
+        prefs.edit().remove(KEY_COLUMNS_BY_TAB).apply()
+    }
+
+    /**
+     * Visible rows of the home grid. Together with the columns this is the "N x N"
+     * arrangement the user can choose (both limited to 15).
+     */
+    fun getRows(): Int = prefs.getInt(KEY_ROWS, DEFAULT_ROWS).coerceIn(MIN_ROWS, MAX_ROWS)
+
+    fun setRows(rows: Int) {
+        prefs.edit().putInt(KEY_ROWS, rows.coerceIn(MIN_ROWS, MAX_ROWS)).apply()
+    }
+
+    private fun readColumnsByTab(): Map<String, Int> {
+        val raw = prefs.getString(KEY_COLUMNS_BY_TAB, null) ?: return emptyMap()
+        val map = LinkedHashMap<String, Int>()
+        raw.split(';').forEach { pair ->
+            val key = pair.substringBefore('=', "")
+            val value = pair.substringAfter('=', "").toIntOrNull()
+            if (key.isNotEmpty() && value != null) map[key] = value
+        }
+        return map
+    }
+
+    private fun writeColumnsByTab(map: Map<String, Int>) {
+        if (map.isEmpty()) {
+            prefs.edit().remove(KEY_COLUMNS_BY_TAB).apply()
+        } else {
+            val raw = map.entries.joinToString(";") { "${it.key}=${it.value}" }
+            prefs.edit().putString(KEY_COLUMNS_BY_TAB, raw).apply()
+        }
     }
 
     // ---- Greeting (short text at the top of the home screen) --------------------------------
@@ -122,6 +175,79 @@ class LayoutPrefs(context: Context) {
         prefs.edit().putBoolean(KEY_MOST_USED, enabled).apply()
     }
 
+    // ---- Visual identity (palette and aurora glow) ------------------------------------------
+
+    /** Index of the colour palette in [Palette.ALL]. */
+    fun getPalette(): Int =
+        prefs.getInt(KEY_PALETTE, Palette.DEFAULT).coerceIn(0, Palette.ALL.size - 1)
+
+    fun setPalette(index: Int) {
+        prefs.edit().putInt(KEY_PALETTE, index.coerceIn(0, Palette.ALL.size - 1)).apply()
+    }
+
+    /** Whether the soft aurora glow is drawn behind the home screen. */
+    fun isAuroraEnabled(): Boolean = prefs.getBoolean(KEY_AURORA, true)
+
+    fun setAuroraEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AURORA, enabled).apply()
+    }
+
+    /** Index of the icon shape in [IconShapes.ALL]. */
+    fun getIconShape(): Int =
+        prefs.getInt(KEY_ICON_SHAPE, IconShapes.DEFAULT).coerceIn(0, IconShapes.ALL.size - 1)
+
+    fun setIconShape(index: Int) {
+        prefs.edit()
+            .putInt(KEY_ICON_SHAPE, index.coerceIn(0, IconShapes.ALL.size - 1))
+            .apply()
+    }
+
+    // ---- Automatic messages under the greeting ----------------------------------------------
+
+    /** When on, the phrase under the title comes from [RandomMessages] instead of the greeting. */
+    fun isAutoMessagesEnabled(): Boolean = prefs.getBoolean(KEY_AUTO_MESSAGES, false)
+
+    fun setAutoMessagesEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_MESSAGES, enabled).apply()
+    }
+
+    /** Bit mask of the enabled [RandomMessages.Kind] values. Never zero. */
+    fun getMessageKindsMask(): Int {
+        val saved = prefs.getInt(KEY_MESSAGE_KINDS, RandomMessages.ALL_KINDS_MASK)
+        val valid = saved and RandomMessages.ALL_KINDS_MASK
+        return if (valid == 0) RandomMessages.ALL_KINDS_MASK else valid
+    }
+
+    fun setMessageKindsMask(mask: Int) {
+        val valid = mask and RandomMessages.ALL_KINDS_MASK
+        prefs.edit()
+            .putInt(
+                KEY_MESSAGE_KINDS,
+                if (valid == 0) RandomMessages.ALL_KINDS_MASK else valid
+            )
+            .apply()
+    }
+
+    /** Who the automatic messages talk to. */
+    fun getMessageTarget(): RandomMessages.Target {
+        val name = prefs.getString(KEY_MESSAGE_TARGET, null)
+        return RandomMessages.Target.values().firstOrNull { it.name == name }
+            ?: RandomMessages.Target.ALTERNATE
+    }
+
+    fun setMessageTarget(target: RandomMessages.Target) {
+        prefs.edit().putString(KEY_MESSAGE_TARGET, target.name).apply()
+    }
+
+    // ---- Weather ----------------------------------------------------------------------------
+
+    /** Whether the weather next to the clock is shown. */
+    fun isWeatherEnabled(): Boolean = prefs.getBoolean(KEY_WEATHER, true)
+
+    fun setWeatherEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WEATHER, enabled).apply()
+    }
+
     /** Tab that was open last (home, a category id or the "all apps" tab). */
     fun getLastTab(): String? = prefs.getString(KEY_LAST_TAB, null)
 
@@ -140,7 +266,11 @@ class LayoutPrefs(context: Context) {
     companion object {
         const val DEFAULT_COLUMNS = 5
         const val MIN_COLUMNS = 2
-        const val MAX_COLUMNS = 10
+        const val MAX_COLUMNS = 15
+
+        const val DEFAULT_ROWS = 3
+        const val MIN_ROWS = 1
+        const val MAX_ROWS = 15
 
         const val GREETING_HIDDEN = 0
         const val GREETING_MAX = 5
@@ -171,10 +301,19 @@ class LayoutPrefs(context: Context) {
         private const val KEY_CATEGORIES = "categories"
         private const val KEY_ASSIGNMENTS = "assignments"
         private const val KEY_COLUMNS = "columns"
+        private const val KEY_COLUMNS_BY_TAB = "columns_by_tab"
+        private const val KEY_ROWS = "rows"
         private const val KEY_GREETING = "greeting_text"
         private const val KEY_GREETING_SIZE = "greeting_size"
         private const val KEY_LAST_TAB = "last_tab"
         private const val KEY_GREETING_BY_TIME = "greeting_by_time"
         private const val KEY_MOST_USED = "most_used_enabled"
+        private const val KEY_PALETTE = "palette"
+        private const val KEY_AURORA = "aurora_enabled"
+        private const val KEY_ICON_SHAPE = "icon_shape"
+        private const val KEY_AUTO_MESSAGES = "auto_messages_enabled"
+        private const val KEY_MESSAGE_KINDS = "message_kinds"
+        private const val KEY_MESSAGE_TARGET = "message_target"
+        private const val KEY_WEATHER = "weather_enabled"
     }
 }

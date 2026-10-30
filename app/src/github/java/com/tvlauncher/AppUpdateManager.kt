@@ -2,6 +2,7 @@ package com.tvlauncher
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -13,6 +14,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -95,10 +97,62 @@ object AppUpdateManager {
             apkFile.delete()
             return UpdateResult.InvalidRelease
         }
+        // A release hosted somewhere else (or a tampered download) must never be offered:
+        // it has to be the same package, signed with the same key as this installation.
+        if (!isTrustedUpdate(context, apkFile)) {
+            apkFile.delete()
+            return UpdateResult.InvalidRelease
+        }
         return if (promptInstall(context, apkFile, apkVersion.versionName)) {
             UpdateResult.InstallStarted
         } else {
             UpdateResult.InstallPermissionNeeded
+        }
+    }
+
+    /**
+     * True only when [apkFile] is this same app (same package name) signed with the same
+     * certificate as the installed copy. Android's installer also enforces this, but checking
+     * here avoids showing an install prompt for a file that could never be accepted.
+     */
+    fun isTrustedUpdate(context: Context, apkFile: File): Boolean {
+        if (!apkFile.exists() || apkFile.length() == 0L) return false
+        return try {
+            val pm = context.packageManager
+            val flags = signingFlags()
+            @Suppress("DEPRECATION")
+            val archive = pm.getPackageArchiveInfo(apkFile.absolutePath, flags) ?: return false
+            if (archive.packageName != context.packageName) return false
+            @Suppress("DEPRECATION")
+            val installed = pm.getPackageInfo(context.packageName, flags) ?: return false
+            val archiveSigners = signerDigests(archive)
+            val installedSigners = signerDigests(installed)
+            archiveSigners.isNotEmpty() && archiveSigners == installedSigners
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun signingFlags(): Int {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+    }
+
+    private fun signerDigests(info: PackageInfo): Set<String> {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.apkContentsSigners
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures
+        } ?: return emptySet()
+        return signatures.mapTo(mutableSetOf()) { signature ->
+            MessageDigest.getInstance("SHA-256")
+                .digest(signature.toByteArray())
+                .joinToString("") { "%02x".format(it) }
         }
     }
 
@@ -196,8 +250,28 @@ object AppUpdateManager {
     }
 
     private fun isAllowedApkUrl(url: String): Boolean {
-        return url.startsWith("https://github.com/") ||
-            url.startsWith("https://objects.githubusercontent.com/")
+        return try {
+            val uri = java.net.URI(url)
+            if (!uri.scheme.equals("https", ignoreCase = true)) return false
+            val host = uri.host ?: return false
+            host == "github.com" || host.endsWith(".githubusercontent.com")
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** HTTPS on GitHub's own domains; used for every request and redirect. */
+    private fun isGitHubHost(url: String): Boolean {
+        return try {
+            val uri = java.net.URI(url)
+            if (!uri.scheme.equals("https", ignoreCase = true)) return false
+            val host = uri.host ?: return false
+            host == "github.com" ||
+                host == "api.github.com" ||
+                host.endsWith(".githubusercontent.com")
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun downloadApk(context: Context, downloadUrl: String): File? {
@@ -253,7 +327,7 @@ object AppUpdateManager {
     }
 
     fun installDownloadedApk(context: Context, apkFile: File): Boolean {
-        if (!apkFile.exists()) {
+        if (!isTrustedUpdate(context, apkFile)) {
             return false
         }
         if (!canInstallPackages(context)) {
@@ -307,7 +381,7 @@ object AppUpdateManager {
                 setRequestProperty("Accept", "application/vnd.github+json")
                 setRequestProperty("User-Agent", "TVLauncher/${BuildConfig.VERSION_NAME}")
             }
-            if (connection.responseCode in 200..299) {
+            if (connection.responseCode in 200..299 && isGitHubHost(connection.url.toString())) {
                 connection
             } else {
                 connection.disconnect()

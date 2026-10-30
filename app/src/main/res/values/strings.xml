@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">TV Launcher</string>
+    <string name="app_name">TJ TV Launcher</string>
     <string name="select_apps">Selecionar apps</string>
     <string name="selected_badge">%1$d selecionados</string>
     <string name="filter_all">Todos</string>
@@ -8,21 +8,16 @@
     <string name="search_hint">Buscar apps…</string>
     <string name="done">Concluir</string>
     <string name="settings">Configurações da TV</string>
-    <string name="launcher_settings">Configurações da launcher</string>
     <string name="shortcuts">Atalhos</string>
-    <string name="about">Acessibilidade e sobre</string>
-    <string name="about_title">Acessibilidade e sobre</string>
-    <string name="about_open_github">Abrir GitHub</string>
+    <string name="about_title">Sobre a TJ TV Launcher</string>
     <string name="about_close">Fechar</string>
-    <string name="about_message">TV Launcher\nVersão %1$s\n\nSoftware livre e de código aberto.\nLicença: GNU GPL v3.0.\n\n%2$s</string>
+    <string name="about_message">TJ TV Launcher\n\nLauncher leve e rápida para Android TV, feita para uso com o controle remoto.\n\nSoftware livre e de código aberto.\nLicença: GNU GPL v3.0.\n\n%1$s</string>
     <string name="about_tagline">Launcher rápida, leve e com pouco uso de memória</string>
-    <string name="github_repo_url">https://github.com/wiiguy/lightweight_androidtv_launcher</string>
     <string name="add_app">Adicionar app</string>
     <string name="remove_app_title">Remover app?</string>
     <string name="remove_app_message">Remover %1$s da tela inicial?</string>
     <string name="remove">Remover</string>
     <string name="cancel">Cancelar</string>
-    <string name="app_menu_title">Opções do app</string>
     <string name="app_menu_open">Abrir</string>
     <string name="app_menu_reorder">Reordenar</string>
     <string name="app_menu_move_to_category">Mover para categoria</string>
@@ -32,13 +27,10 @@
     <!-- Abas e tela inicial -->
     <string name="tab_home">Início</string>
     <string name="tab_all_apps">Todos os apps</string>
-    <string name="tab_new_category">Categoria</string>
     <string name="greeting_default">Olá, Thiel e Jéssica\nQue tal preparar aquele lanche bem gostoso pra curtir aquele filme ou série bem de boa?</string>
     <string name="home_empty_hint">Nenhum app aqui ainda. Abra a aba Todos os apps para adicionar.</string>
 
     <!-- Todos os apps -->
-    <string name="all_apps_title">Todos os apps</string>
-    <string name="all_apps_search_hint">Buscar app…</string>
     <string name="all_apps_added_in">Em: %1$s</string>
     <string name="all_apps_not_added">Não adicionado</string>
     <string name="all_apps_add_to">Adicionar a uma categoria</string>
@@ -49,28 +41,15 @@
     <string name="all_apps_added_toast">%1$s adicionado em %2$s.</string>
     <string name="all_apps_removed_toast">%1$s removido do início.</string>
     <string name="all_apps_choose_category">Adicionar em qual categoria?</string>
-    <string name="all_apps_loading">Carregando apps…</string>
 
     <!-- Configurações da launcher, tamanhos, ordem e categorias -->
     <string name="customize_title">Configurações da launcher</string>
-    <string name="customize_icon_size">Tamanho dos ícones</string>
     <string name="customize_greeting_size">Tamanho da frase</string>
     <string name="customize_greeting_text">Editar a frase</string>
     <string name="customize_wallpaper">Papel de parede</string>
-    <string name="customize_accessibility">Acessibilidade e botão Home</string>
     <string name="customize_new_category">Nova categoria</string>
     <string name="customize_sort_az">Ordenar apps de A a Z</string>
-    <string name="customize_add_remove_apps">Atalhos de apps (avançado)</string>
-    <string name="customize_last_error">Ver último erro do app</string>
     <string name="sorted_az_done">Apps ordenados de A a Z.</string>
-    <string name="icon_size_tiny">Minúsculo</string>
-    <string name="icon_size_very_small">Muito pequeno</string>
-    <string name="icon_size_small">Pequeno</string>
-    <string name="icon_size_medium_small">Médio pequeno</string>
-    <string name="icon_size_medium">Médio (padrão)</string>
-    <string name="icon_size_medium_large">Médio grande</string>
-    <string name="icon_size_large">Grande</string>
-    <string name="icon_size_very_large">Muito grande</string>
     <string name="greeting_size_hidden">Ocultar a frase</string>
     <string name="greeting_size_1">Muito pequena</string>
     <string name="greeting_size_2">Pequena (padrão)</string>
@@ -90,7 +69,6 @@
     <string name="category_delete">Excluir categoria</string>
     <string name="category_delete_title">Excluir categoria?</string>
     <string name="category_delete_message">Excluir \"%1$s\"? Os apps dela voltam para o Início.</string>
-    <string name="loading_apps">Carregando apps…</string>
     <string name="update_check_now">Procurar atualização</string>
     <string name="update_checking">Procurando atualização…</string>
     <string name="update_none">Você já está na versão mais recente.</string>
@@ -102,30 +80,17 @@
     <string name="update_available_title">Atualização disponível</string>
     <string name="update_available_message">A versão %1$s está pronta para instalar.</string>
     <string name="update_install">Instalar</string>
-    <string name="update_auto_description">Procura e instala novas versões da TV Launcher em segundo plano</string>
-    <string name="update_auto_toggle">Atualizações semanais automáticas</string>
     <string name="update_auto_off">Atualizações semanais desligadas.</string>
     <string name="update_auto_on">Atualizações semanais ligadas.</string>
 
     <!-- Botão Home, acessibilidade e memória -->
-    <string name="override_default_launcher">Usar esta launcher no botão Home</string>
-    <string name="override_default_launcher_desc">Captura o botão Home do controle e abre esta launcher no lugar da launcher da TV</string>
-    <string name="enable_accessibility_prompt">Ative o serviço \"TV Launcher\" em Acessibilidade para o botão Home abrir esta launcher.</string>
     <string name="suppress_stock_ram">Desativar a launcher original da TV</string>
-    <string name="suppress_stock_ram_desc">Encerra a Google TV e outras launchers originais em segundo plano e libera mais de 100 MB de memória</string>
     <string name="suppress_stock_ram_confirm">Isso encerra em segundo plano as launchers que já vêm instaladas na TV, como a Google TV, para liberar memória. Launchers que você instalou nunca são afetadas. Você pode desligar quando quiser.</string>
     <string name="enable">Ativar</string>
     <string name="accessibility_service_description">Permite que a TV Launcher detecte o botão Home do controle e volte para esta launcher.</string>
-    <string name="accessibility_setup_title">Ativar o botão Home</string>
-    <string name="accessibility_setup_message">Para o botão Home abrir esta launcher no lugar da Google TV, ative o serviço \"TV Launcher\" em Acessibilidade.</string>
-    <string name="accessibility_setup_open">Abrir acessibilidade</string>
-    <string name="accessibility_setup_later">Agora não</string>
     <string name="accessibility_auto_enabled">Botão Home ativado automaticamente.</string>
     <string name="accessibility_adb_title">Ativação automática</string>
     <string name="accessibility_adb_message">Se a TV desligar o serviço sozinha, libere uma vez a permissão abaixo por ADB. Depois disso a launcher liga o serviço sozinha sempre que abrir.\n\n%1$s</string>
-    <string name="last_error_title">Último erro do app</string>
-    <string name="last_error_none">Nenhum erro registrado.</string>
-    <string name="last_error_clear">Limpar</string>
     <string name="close">Fechar</string>
 
     <!-- Papel de parede -->
@@ -152,7 +117,6 @@
     <string name="wallpaper_interval_24h">Todo dia (24 horas)</string>
     <string name="wallpaper_custom_url_hint">Digite o link direto da imagem (https://…)</string>
     <string name="wallpaper_folder_choose">Escolher pasta</string>
-    <string name="wallpaper_folder_none">Nenhuma pasta escolhida</string>
     <string name="wallpaper_folder_selected">Pasta: %1$s</string>
     <string name="wallpaper_folder_no_picker">Esta TV não tem seletor de pastas. Use a opção de link ou as imagens online.</string>
     <string name="wallpaper_folder_empty">Não encontrei imagens nessa pasta.</string>
@@ -162,13 +126,6 @@
     <string name="wallpaper_updated">Papel de parede atualizado.</string>
     <string name="wallpaper_failed">Não foi possível carregar a imagem.</string>
 
-    <!-- Entradas da TV -->
-    <string name="tab_inputs">Entradas</string>
-    <string name="inputs_live_tv">TV ao vivo</string>
-    <string name="inputs_live_tv_hint">Canais da antena ou do cabo</string>
-    <string name="inputs_hdmi_hint">Trocar para esta entrada</string>
-    <string name="inputs_failed">Não foi possível abrir esta entrada.</string>
-
     <!-- Mais usados, saudação por horário, memória, backup -->
     <string name="most_used_title">Mais usados</string>
     <string name="customize_most_used">Mais usados no início</string>
@@ -177,8 +134,6 @@
     <string name="state_off">Desligado</string>
     <string name="customize_free_memory">Liberar memória agora</string>
     <string name="free_memory_done">Memória livre: %1$d MB → %2$d MB</string>
-    <string name="customize_export">Exportar configurações</string>
-    <string name="customize_import">Importar configurações</string>
     <string name="backup_exported">Configurações salvas no arquivo.</string>
     <string name="backup_imported">Configurações restauradas.</string>
     <string name="backup_failed">Não foi possível ler esse arquivo.</string>
@@ -203,4 +158,30 @@
     <string name="ok">OK</string>
     <string name="customize_backup_export">Salvar configurações em arquivo</string>
     <string name="customize_backup_import">Restaurar configurações de arquivo</string>
+
+    <!-- Identidade visual, formato dos ícones, mensagens automáticas e previsão do tempo -->
+    <string name="customize_icon_shape">Formato dos ícones</string>
+    <string name="customize_palette">Paleta de cores</string>
+    <string name="customize_aurora">Aurora no fundo</string>
+    <string name="customize_auto_messages">Frases automáticas (poemas, piadas e mensagens)</string>
+    <string name="customize_message_kinds">Tipos de mensagem automática</string>
+    <string name="customize_message_target">Para quem são as mensagens</string>
+    <string name="customize_weather">Previsão do tempo no topo</string>
+    <string name="messages_kind_message">Mensagens carinhosas</string>
+    <string name="messages_kind_poem">Poemas</string>
+    <string name="messages_kind_joke">Piadas</string>
+    <string name="messages_target_alternate">Alternar entre Thiel, Jéssica e os dois</string>
+    <string name="messages_target_thiel">Só para o Thiel</string>
+    <string name="messages_target_jessica">Só para a Jéssica</string>
+    <string name="messages_target_both">Para os dois</string>
+    <string name="messages_none_selected">Escolha pelo menos um tipo de mensagem.</string>
+    <string name="weather_now">%1$d° %2$s</string>
+    <string name="weather_week_title">Previsão da semana · Belém - PA</string>
+    <string name="weather_today">Hoje</string>
+    <string name="weather_tomorrow">Amanhã</string>
+    <string name="weather_day_line">%1$s · mín. %2$d° / máx. %3$d° · %4$s</string>
+    <string name="weather_rain_chance">%1$d%% de chuva</string>
+    <string name="weather_refresh">Atualizar</string>
+    <string name="weather_unavailable">Não consegui carregar a previsão agora.</string>
+    <string name="wallpaper_folder_selected_count">Pasta: %1$s (%2$d imagens)</string>
 </resources>

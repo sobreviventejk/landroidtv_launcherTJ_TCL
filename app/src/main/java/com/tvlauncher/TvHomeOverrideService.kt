@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
@@ -18,6 +19,10 @@ import android.view.accessibility.AccessibilityEvent
 class TvHomeOverrideService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /** True while the Home key is being held long enough to open the recent apps window. */
+    private var homeLongPressFired = false
+
     private var knownStockLauncherPackages = mutableSetOf(
         "com.google.android.tvlauncher",
         "com.google.android.apps.tv.launcherx",
@@ -52,7 +57,13 @@ class TvHomeOverrideService : AccessibilityService() {
             val homeResolvers = pm.queryIntentActivities(homeIntent, PackageManager.MATCH_ALL)
             homeResolvers.forEach { resolveInfo ->
                 val pkg = resolveInfo.activityInfo.packageName
-                if (pkg != packageName && !isWhitelistedPackage(pkg)) {
+                // Only pre-installed (system) HOME apps may be hijacked. A third-party app that
+                // merely declares the HOME category is never added, so it cannot make the
+                // launcher reopen itself in a loop.
+                val flags = resolveInfo.activityInfo.applicationInfo?.flags ?: 0
+                val isSystem = (flags and
+                    (ApplicationInfo.FLAG_SYSTEM or ApplicationInfo.FLAG_UPDATED_SYSTEM_APP)) != 0
+                if (pkg != packageName && isSystem && !isWhitelistedPackage(pkg)) {
                     knownStockLauncherPackages.add(pkg)
                 }
             }
@@ -70,13 +81,43 @@ class TvHomeOverrideService : AccessibilityService() {
         val isHomeKey = keyCode == KeyEvent.KEYCODE_HOME
 
         if (isHomeKey) {
-            if (event.action == KeyEvent.ACTION_DOWN) {
-                launchHome()
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> {
+                    if (event.repeatCount == 0) {
+                        homeLongPressFired = false
+                        mainHandler.removeCallbacks(homeLongPressRunnable)
+                        mainHandler.postDelayed(homeLongPressRunnable, HOME_LONG_PRESS_MS)
+                    }
+                }
+                KeyEvent.ACTION_UP -> {
+                    mainHandler.removeCallbacks(homeLongPressRunnable)
+                    if (!homeLongPressFired) launchHome()
+                    homeLongPressFired = false
+                }
             }
             return true
         }
 
         return super.onKeyEvent(event)
+    }
+
+    /**
+     * Holding Home for [HOME_LONG_PRESS_MS] opens the "apps abertos" window. A short press still
+     * brings this launcher to the front.
+     */
+    private val homeLongPressRunnable = Runnable {
+        homeLongPressFired = true
+        openRecents()
+    }
+
+    private fun openRecents() {
+        try {
+            val intent = Intent(this, RecentsActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+            startActivity(intent)
+        } catch (_: Exception) {
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -141,6 +182,9 @@ class TvHomeOverrideService : AccessibilityService() {
         const val DEFAULT_HOME_OVERRIDE = true
         const val DEFAULT_SUPPRESS_STOCK = true
 
+        /** Holding the Home key for this long opens the recent apps window. */
+        const val HOME_LONG_PRESS_MS = 700L
+
         @Volatile
         private var pauseOverrideUntil: Long = 0L
 
@@ -170,15 +214,21 @@ class TvHomeOverrideService : AccessibilityService() {
         }
 
         fun isAccessibilityServiceEnabled(context: Context): Boolean {
-            val expectedServiceName = "${context.packageName}/${TvHomeOverrideService::class.java.canonicalName}"
+            val expectedClass = TvHomeOverrideService::class.java.name
+            val shortClass = "." + expectedClass.substringAfterLast('.')
             val enabledServices = Settings.Secure.getString(
                 context.contentResolver,
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
             ) ?: return false
 
-            return enabledServices.split(':').any {
-                it.equals(expectedServiceName, ignoreCase = true) ||
-                    it.contains(context.packageName)
+            // Only an exact "package/class" entry counts. A substring match would accept an
+            // unrelated service whose name merely contains this package name.
+            return enabledServices.split(':').any { entry ->
+                val trimmed = entry.trim()
+                if (trimmed.isEmpty()) return@any false
+                val pkg = trimmed.substringBefore('/')
+                val cls = trimmed.substringAfter('/', "")
+                pkg == context.packageName && (cls == expectedClass || cls == shortClass)
             }
         }
 

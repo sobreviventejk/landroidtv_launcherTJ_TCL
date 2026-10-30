@@ -1,5 +1,6 @@
 package com.tvlauncher
 
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -16,7 +17,9 @@ import androidx.recyclerview.widget.RecyclerView
 class AllAppsAdapter(
     private val onClick: (Row) -> Unit,
     private val onLongClick: (Row) -> Unit,
-    private val iconSizePx: () -> Int
+    private val iconSizePx: () -> Int,
+    /** Height of one row: the "All apps" tab has its own icon size, chosen with a bar. */
+    private val rowHeightPx: () -> Int = { 0 }
 ) : ListAdapter<AllAppsAdapter.Row, AllAppsAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     /**
@@ -46,11 +49,31 @@ class AllAppsAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val row = getItem(position)
+        val height = rowHeightPx()
+        if (height > 0) {
+            holder.itemView.layoutParams = holder.itemView.layoutParams.apply {
+                this.height = height
+            }
+            val scale = height / (56f * holder.itemView.resources.displayMetrics.density)
+            holder.name.setTextSize(
+                TypedValue.COMPLEX_UNIT_SP,
+                (13f * scale).coerceIn(10f, 18f)
+            )
+            holder.status.setTextSize(
+                TypedValue.COMPLEX_UNIT_SP,
+                (10f * scale).coerceIn(9f, 14f)
+            )
+        }
         holder.name.text = row.app.getDisplayName()
         holder.status.text = row.status
         holder.check.visibility = if (row.added) View.VISIBLE else View.GONE
+        val iconPx = iconSizePx()
+        holder.icon.layoutParams = holder.icon.layoutParams.apply {
+            width = iconPx
+            height = iconPx
+        }
         holder.icon.setImageDrawable(
-            row.app.getIcon(holder.itemView.context.packageManager, iconSizePx())
+            row.app.getIcon(holder.itemView.context.packageManager, iconPx)
         )
         holder.itemView.setOnClickListener {
             val pos = holder.bindingAdapterPosition

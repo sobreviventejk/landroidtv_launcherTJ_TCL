@@ -48,8 +48,7 @@ class NewFeaturesTest {
     }
 
     @Test
-    fun pin_validationAndHash() {
-        assertTrue(PinPrefs.isValidPin("1234"))
+    fun pin_validationAndHash() {        assertTrue(PinPrefs.isValidPin("1234"))
         assertTrue(PinPrefs.isValidPin("12345678"))
         assertFalse(PinPrefs.isValidPin("123"))
         assertFalse(PinPrefs.isValidPin("123456789"))
@@ -57,5 +56,32 @@ class NewFeaturesTest {
         assertEquals(PinPrefs.hash("s", "1234"), PinPrefs.hash("s", "1234"))
         assertFalse(PinPrefs.hash("s", "1234") == PinPrefs.hash("t", "1234"))
         assertFalse(PinPrefs.hash("s", "1234").contains("1234"))
+    }
+
+    @Test
+    fun search_ignoresAccentsAndCase() {
+        assertEquals("configuracoes", SearchAdapter.normalize("Configurações"))
+        assertEquals("sao paulo", SearchAdapter.normalize("  São   Paulo "))
+        val apps = listOf(
+            AppInfo("p1", "Netflix"),
+            AppInfo("p2", "YouTube"),
+            AppInfo("p3", "Configurações")
+        )
+        assertEquals(listOf("p1"), SearchAdapter.filter(apps, "NETFLIX").map { it.packageName })
+        assertEquals(
+            listOf("p3"),
+            SearchAdapter.filter(apps, "configuracoes").map { it.packageName }
+        )
+        assertEquals(3, SearchAdapter.filter(apps, "").size)
+        assertTrue(SearchAdapter.filter(apps, "nada").isEmpty())
+    }
+
+    @Test
+    fun lockDuration_startsAfterFiveFailuresAndStopsAtMaximum() {
+        assertEquals(0L, PinPrefs.lockDurationMs(0))
+        assertEquals(0L, PinPrefs.lockDurationMs(4))
+        assertEquals(30_000L, PinPrefs.lockDurationMs(5))
+        assertEquals(60_000L, PinPrefs.lockDurationMs(7))
+        assertEquals(15 * 60 * 1000L, PinPrefs.lockDurationMs(200))
     }
 }

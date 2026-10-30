@@ -1,12 +1,11 @@
 package com.tvlauncher
 
-import android.animation.AnimatorSet
-import android.animation.ObjectAnimator
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.animation.DecelerateInterpolator
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
@@ -65,16 +64,18 @@ class AppSlotAdapter(
         companion object {
             private const val BASE_SLOT_DP = 130f
 
-            /** Scales the original layout (130dp tile, 72dp icon, 12sp label) to [slotPx]. */
+            /**
+             * Google TV style: the icon takes most of the tile (~78%) and the name only appears
+             * while the tile is focused, so the grid looks like a wall of icons.
+             */
             fun forSlot(slotPx: Int, density: Float): Sizing {
                 val scale = slotPx / (BASE_SLOT_DP * density)
-                val slotDp = slotPx / density
                 return Sizing(
                     slotPx = slotPx,
-                    iconPx = (slotPx * 72f / BASE_SLOT_DP).toInt(),
-                    iconTopPx = (slotPx * 16f / BASE_SLOT_DP).toInt(),
-                    textSp = (12f * scale).coerceIn(10f, 18f),
-                    nameLines = if (slotDp < 110f) 1 else 2,
+                    iconPx = (slotPx * 0.78f).toInt(),
+                    iconTopPx = (slotPx * 0.04f).toInt(),
+                    textSp = (11f * scale).coerceIn(10f, 16f),
+                    nameLines = 1,
                     plusPx = (slotPx * 56f / BASE_SLOT_DP).toInt(),
                     plusTopPx = (slotPx * 20f / BASE_SLOT_DP).toInt(),
                     plusTextSp = (30f * scale).coerceIn(22f, 44f)
@@ -89,6 +90,22 @@ class AppSlotAdapter(
                 field = value
                 notifyDataSetChanged()
             }
+        }
+
+    /** Focus colour, taken from the chosen palette (see [Palette]). */
+    var accentColor: Int = Palette.accent(Palette.DEFAULT)
+        set(value) {
+            if (field == value) return
+            field = value
+            notifyDataSetChanged()
+        }
+
+    /** Shape the icons are clipped to (see [IconShapes]). */
+    var iconShape: Int = IconShapes.DEFAULT
+        set(value) {
+            if (field == value) return
+            field = value
+            notifyDataSetChanged()
         }
 
     /** Key of the tile being moved in reorder mode (highlighted), or null. */
@@ -113,32 +130,6 @@ class AppSlotAdapter(
         val plusButton: TextView = itemView.findViewById(R.id.plusButton)
         val addText: TextView = itemView.findViewById(R.id.addText)
         var boundKey: String? = null
-
-        init {
-            itemView.setOnFocusChangeListener { view, hasFocus ->
-                animateFocus(view, hasFocus)
-                if (hasFocus) {
-                    boundKey?.let(onFocused)
-                }
-            }
-        }
-
-        private fun animateFocus(view: View, hasFocus: Boolean) {
-            val scale = if (hasFocus) 1.08f else 1.0f
-            val scaleX = ObjectAnimator.ofFloat(view, View.SCALE_X, scale)
-            val scaleY = ObjectAnimator.ofFloat(view, View.SCALE_Y, scale)
-            AnimatorSet().apply {
-                playTogether(scaleX, scaleY)
-                duration = 150
-                interpolator = DecelerateInterpolator()
-                start()
-            }
-            if (hasFocus) {
-                view.elevation = 8f
-            } else {
-                view.elevation = 0f
-            }
-        }
     }
 
     class HeaderViewHolder(
@@ -209,25 +200,33 @@ class AppSlotAdapter(
         holder.itemView.setOnLongClickListener(null)
         applySizing(holder)
 
+        val moving = slot.key == movingKey
+        holder.itemView.isActivated = moving
+        holder.itemView.setOnFocusChangeListener { _, hasFocus ->
+            applyFocusLook(holder, slot, hasFocus, moving)
+            if (hasFocus) {
+                holder.boundKey?.let(onItemFocused)
+            }
+        }
+        applyFocusLook(holder, slot, holder.itemView.isFocused, moving)
+
         if (slot.isEmpty) {
-            holder.itemView.isActivated = false
             holder.appIcon.visibility = View.GONE
-            holder.appName.visibility = View.GONE
+            holder.appName.visibility = View.INVISIBLE
             holder.plusButton.visibility = View.VISIBLE
             holder.addText.visibility = View.VISIBLE
 
             holder.itemView.setOnClickListener { onPlusClick() }
         } else {
             slot.appInfo?.let { app ->
-                holder.itemView.isActivated = slot.key == movingKey
-
                 holder.appIcon.setImageDrawable(
                     app.getIcon(holder.itemView.context.packageManager, sizing.iconPx)
                 )
                 holder.appName.text = app.getDisplayName()
 
                 holder.appIcon.visibility = View.VISIBLE
-                holder.appName.visibility = View.VISIBLE
+                holder.appName.visibility =
+                    if (holder.itemView.isFocused || moving) View.VISIBLE else View.INVISIBLE
                 holder.plusButton.visibility = View.GONE
                 holder.addText.visibility = View.GONE
 
@@ -251,6 +250,45 @@ class AppSlotAdapter(
                     true
                 }
             }
+        }
+    }
+
+    /**
+     * Focus look without a card: a soft rounded glow behind the icon (no border, no zoom and no
+     * shadow). The name of the app only shows up while the tile is focused.
+     */
+    private fun applyFocusLook(
+        holder: AppSlotViewHolder,
+        slot: AppSlot,
+        focused: Boolean,
+        moving: Boolean
+    ) {
+        val density = holder.itemView.resources.displayMetrics.density
+        val accent = accentColor
+        val highlighted = focused || moving
+        val alpha = when {
+            moving -> 0x66
+            focused -> 0x3D
+            else -> 0x00
+        }
+        val background = GradientDrawable().apply {
+            cornerRadius = 18 * density
+            setColor(
+                Color.argb(
+                    alpha,
+                    Color.red(accent),
+                    Color.green(accent),
+                    Color.blue(accent)
+                )
+            )
+            if (moving) {
+                setStroke((2 * density).toInt(), accent)
+            }
+        }
+        holder.itemView.background = background
+        holder.itemView.elevation = 0f
+        if (!slot.isEmpty) {
+            holder.appName.visibility = if (highlighted) View.VISIBLE else View.INVISIBLE
         }
     }
 
@@ -289,6 +327,7 @@ class AppSlotAdapter(
         holder.appName.maxLines = s.nameLines
         holder.addText.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.textSp)
         holder.plusButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.plusTextSp)
+        IconShapes.applyTo(holder.appIcon, iconShape)
     }
 
     companion object {

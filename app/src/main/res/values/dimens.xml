@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Narrow safe area: on a 4K TV 24dp is about 1 % of the width, so the apps use almost
+         the whole screen instead of floating in the middle. -->
+    <dimen name="screen_margin_h">24dp</dimen>
+    <dimen name="screen_margin_v">16dp</dimen>
+    <dimen name="grid_padding">4dp</dimen>
+    <dimen name="grid_item_margin">4dp</dimen>
+</resources>

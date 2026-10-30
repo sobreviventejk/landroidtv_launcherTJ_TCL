@@ -1,17 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Modern dark theme palette -->
-    <color name="bg_main">#FF0E0E12</color>
+    <color name="bg_main">#FF000000</color>
     <color name="bg_card">#1AFFFFFF</color>
-    <color name="bg_card_focused">#33FFFFFF</color>
-    <color name="border_card">#26FFFFFF</color>
+    <color name="bg_card_focused">#33FFFFFF</color>    <color name="border_card">#26FFFFFF</color>
     <color name="border_focused">#FFFFFFFF</color>
     <color name="accent">#FF6366F1</color>
     <color name="accent_focused">#FF818CF8</color>
     <color name="text_primary">#FFFFFFFF</color>
     <color name="text_secondary">#99FFFFFF</color>
     <color name="text_tertiary">#66FFFFFF</color>
-    <color name="dialog_bg">#FF18181F</color>
+    <color name="dialog_bg">#FF0B0B0F</color>
 
     <!-- Legacy color aliases for backwards compatibility -->
     <color name="purple_500">#FF6366F1</color>

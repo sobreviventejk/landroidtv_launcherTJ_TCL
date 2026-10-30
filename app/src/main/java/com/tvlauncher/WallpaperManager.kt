@@ -54,9 +54,19 @@ object WallpaperManager {
     private const val PREF_DIM_OVERLAY = "wallpaper_dim_overlay"
     private const val PREF_LAST_FETCH_TIME = "wallpaper_last_fetch_time"
     private const val PREF_FOLDER_URI = "wallpaper_folder_uri"
-    private const val PREF_LAST_FOLDER_PICK = "wallpaper_last_folder_pick"
+    private const val PREF_LOCAL_FOLDER = "wallpaper_local_folder"
+    private const val PREF_RECENT_PICKS = "wallpaper_recent_folder_picks"
     private const val CACHE_FILE_NAME = "current_wallpaper.jpg"
+    private const val LOCAL_FOLDER_NAME = "wallpaper_picked"
     private const val MAX_REDIRECTS = 5
+    private const val MAX_FOLDER_DEPTH = 3
+    private const val MAX_FOLDER_IMAGES = 3000
+    private const val MAX_LOCAL_IMAGES = 60
+    private const val MAX_LOCAL_TOTAL_BYTES = 200L * 1024 * 1024
+    private const val MAX_RECENT_PICKS = 40
+
+    /** Refuses absurdly large downloads, which would only waste the TV's storage and RAM. */
+    private const val MAX_IMAGE_BYTES = 25L * 1024L * 1024L
 
     private val executor = Executors.newSingleThreadExecutor()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -116,6 +126,81 @@ object WallpaperManager {
 
     /** Short readable name of the chosen folder, taken from its document id. */
     fun getFolderLabel(context: Context): String = labelForTree(getFolderUri(context))
+
+    /**
+     * Fallback used when the TV has no system folder picker: the user selects the photos with any
+     * gallery/file app and the launcher keeps its own copy of them, so it can still rotate them.
+     */
+    fun getLocalFolder(context: Context): String {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getString(PREF_LOCAL_FOLDER, "") ?: ""
+    }
+
+    fun localFolderImageCount(context: Context): Int {
+        val dir = File(getLocalFolder(context).ifEmpty { "" })
+        if (!dir.isDirectory) return 0
+        return dir.listFiles()?.count { it.isFile && it.length() > 1024 } ?: 0
+    }
+
+    fun hasAnyImageSource(context: Context): Boolean =
+        getFolderUri(context).isNotEmpty() || localFolderImageCount(context) > 0
+
+    /**
+     * Copies the picked pictures into the app's private storage (at most [MAX_LOCAL_IMAGES]) and
+     * turns the folder wallpaper mode on. Returns how many were saved.
+     */
+    fun savePickedImages(context: Context, uris: List<Uri>): Int {
+        val dir = File(context.filesDir, LOCAL_FOLDER_NAME)
+        try {
+            dir.mkdirs()
+            dir.listFiles()?.forEach { it.delete() }
+            var saved = 0
+            var budget = MAX_LOCAL_TOTAL_BYTES
+            uris.take(MAX_LOCAL_IMAGES).forEach { uri ->
+                if (budget <= 1024L) return@forEach
+                try {
+                    val input = context.contentResolver.openInputStream(uri) ?: return@forEach
+                    val dest = File(dir, "picked_${saved}_${System.currentTimeMillis()}.img")
+                    val limit = minOf(MAX_IMAGE_BYTES, budget)
+                    val ok = try {
+                        FileOutputStream(dest).use { output ->
+                            val buffer = ByteArray(16 * 1024)
+                            var total = 0L
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                total += read
+                                if (total > limit) break
+                                output.write(buffer, 0, read)
+                            }
+                            total in 1024..limit
+                        }
+                    } finally {
+                        runCatching { input.close() }
+                    }
+                    if (ok && isDecodableImage(dest)) {
+                        budget -= dest.length()
+                        saved++
+                    } else {
+                        dest.delete()
+                    }
+                } catch (_: Exception) {
+                }
+            }
+            if (saved > 0) {
+                val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString(PREF_LOCAL_FOLDER, dir.absolutePath)
+                    .putString(PREF_FOLDER_URI, "")
+                    .putString(PREF_MODE, MODE_FOLDER)
+                    .putLong(PREF_LAST_FETCH_TIME, 0L)
+                    .apply()
+            }
+            return saved
+        } catch (_: Exception) {
+            return 0
+        }
+    }
 
     fun labelForTree(rawUri: String): String {
         if (rawUri.isEmpty()) return ""
@@ -364,13 +449,30 @@ object WallpaperManager {
                 if (status !in 200..299) return false
 
                 val tempFile = File(context.cacheDir, "${CACHE_FILE_NAME}.tmp")
+                var total = 0L
                 conn.inputStream.use { input ->
                     FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
+                        val buffer = ByteArray(16 * 1024)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            total += read
+                            if (total > MAX_IMAGE_BYTES) break
+                            output.write(buffer, 0, read)
+                        }
                     }
                 }
 
+                if (total > MAX_IMAGE_BYTES) {
+                    tempFile.delete()
+                    return false
+                }
                 if (!tempFile.exists() || tempFile.length() < 1024) {
+                    tempFile.delete()
+                    return false
+                }
+                // Reject anything that is not really a decodable image.
+                if (!isDecodableImage(tempFile)) {
                     tempFile.delete()
                     return false
                 }
@@ -394,55 +496,140 @@ object WallpaperManager {
         return false
     }
 
-    /** Picks a random image from the chosen folder (not the last one) and caches it. */
+    /** Picks a random image from the chosen folder (not one used recently) and caches it. */
     private fun copyRandomImageFromFolder(context: Context): Boolean {
         val raw = getFolderUri(context)
-        if (raw.isEmpty()) return false
+        if (raw.isEmpty()) return copyRandomLocalImage(context)
         return try {
             val treeUri = Uri.parse(raw)
-            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-                treeUri,
-                DocumentsContract.getTreeDocumentId(treeUri)
-            )
-            val images = mutableListOf<String>()
-            context.contentResolver.query(
-                childrenUri,
-                arrayOf(
-                    DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-                    DocumentsContract.Document.COLUMN_MIME_TYPE
-                ),
-                null,
-                null,
-                null
-            )?.use { cursor ->
-                while (cursor.moveToNext()) {
-                    val mime = cursor.getString(1).orEmpty()
-                    if (mime.startsWith("image/")) {
-                        images.add(cursor.getString(0))
-                    }
-                }
-            }
+            val images = listImageIds(context, raw)
             if (images.isEmpty()) return false
 
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-            val last = prefs.getString(PREF_LAST_FOLDER_PICK, null)
-            val choices = if (images.size > 1) images.filter { it != last } else images
+            val recent = prefs.getString(PREF_RECENT_PICKS, null)
+                .orEmpty()
+                .split('\n')
+                .filter { it.isNotEmpty() }
+            val choices = images.filter { it !in recent }.ifEmpty { images }
             val picked = choices.random()
-            prefs.edit().putString(PREF_LAST_FOLDER_PICK, picked).apply()
+
+            // Keep a small history, so the same photo does not show up again right away.
+            val history = (listOf(picked) + recent).take(MAX_RECENT_PICKS)
+            prefs.edit().putString(PREF_RECENT_PICKS, history.joinToString("\n")).apply()
 
             val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, picked)
             val input = context.contentResolver.openInputStream(docUri) ?: return false
-            input.use { saveStreamToCache(context, it) }
+            saveStreamToCache(context, input)
         } catch (_: Exception) {
             false
+        }
+    }
+
+    /** Counts the images of the chosen folder in the background (subfolders included). */
+    fun countImagesAsync(context: Context, rawUri: String, onCount: (Int) -> Unit) {
+        if (rawUri.isEmpty()) {
+            val local = localFolderImageCount(context)
+            onCount(local)
+            return
+        }
+        val appContext = context.applicationContext
+        executor.execute {
+            val count = listImageIds(appContext, rawUri).size
+            mainHandler.post { onCount(count) }
+        }
+    }
+
+    /** Same as [copyRandomImageFromFolder], for the photos imported without a folder picker. */
+    private fun copyRandomLocalImage(context: Context): Boolean {
+        return try {
+            val dir = File(getLocalFolder(context))
+            val images = dir.listFiles()?.filter { it.isFile && it.length() > 1024 }
+                ?: return false
+            if (images.isEmpty()) return false
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            val recent = prefs.getString(PREF_RECENT_PICKS, null)
+                .orEmpty()
+                .split('\n')
+                .filter { it.isNotEmpty() }
+            val choices = images.filter { it.name !in recent }.ifEmpty { images }
+            val picked = choices.random()
+            val history = (listOf(picked.name) + recent).take(MAX_RECENT_PICKS)
+            prefs.edit().putString(PREF_RECENT_PICKS, history.joinToString("\n")).apply()
+            context.contentResolver.openInputStream(Uri.fromFile(picked))?.let { input ->
+                saveStreamToCache(context, input)
+            } ?: false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Lists the document ids of every image inside a tree folder, including subfolders
+     * (up to [MAX_FOLDER_DEPTH] levels). Returns an empty list when the folder is not readable.
+     */
+    private fun listImageIds(context: Context, rawUri: String): List<String> {
+        return try {
+            val treeUri = Uri.parse(rawUri)
+            val images = mutableListOf<String>()
+            val pending = mutableListOf(DocumentsContract.getTreeDocumentId(treeUri) to 0)
+            val visited = mutableSetOf<String>()
+
+            while (pending.isNotEmpty() && images.size < MAX_FOLDER_IMAGES) {
+                val (documentId, depth) = pending.removeAt(0)
+                if (!visited.add(documentId)) continue
+                val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
+                try {
+                    context.contentResolver.query(
+                        childrenUri,
+                        arrayOf(
+                            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                            DocumentsContract.Document.COLUMN_MIME_TYPE
+                        ),
+                        null,
+                        null,
+                        null
+                    )?.use { cursor ->
+                        while (cursor.moveToNext()) {
+                            val childId = cursor.getString(0) ?: continue
+                            val mime = cursor.getString(1).orEmpty()
+                            when {
+                                mime.startsWith("image/") -> images.add(childId)
+                                mime == DocumentsContract.Document.MIME_TYPE_DIR &&
+                                    depth < MAX_FOLDER_DEPTH -> pending.add(childId to depth + 1)
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Skip folders that cannot be read (permission lost, removed SD card...).
+                }
+            }
+            images
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
     /** Writes [input] to the wallpaper cache file. Returns false if the result is not usable. */
     private fun saveStreamToCache(context: Context, input: InputStream): Boolean {
         val tempFile = File(context.cacheDir, "${CACHE_FILE_NAME}.tmp")
-        FileOutputStream(tempFile).use { output -> input.copyTo(output) }
-        if (!tempFile.exists() || tempFile.length() < 1024) {
+        var total = 0L
+        FileOutputStream(tempFile).use { output ->
+            input.use { source ->
+                val buffer = ByteArray(16 * 1024)
+                while (true) {
+                    val read = source.read(buffer)
+                    if (read < 0) break
+                    total += read
+                    if (total > MAX_IMAGE_BYTES) break
+                    output.write(buffer, 0, read)
+                }
+            }
+        }
+        if (total > MAX_IMAGE_BYTES || !tempFile.exists() || tempFile.length() < 1024) {
+            tempFile.delete()
+            return false
+        }
+        if (!isDecodableImage(tempFile)) {
             tempFile.delete()
             return false
         }
@@ -458,9 +645,32 @@ object WallpaperManager {
         return true
     }
 
-    private fun isAllowedImageUrl(url: String): Boolean {
-        return url.startsWith("https://") || url.startsWith("http://")
+    /** True when [file] really contains an image (reads only the header). */
+    private fun isDecodableImage(file: File): Boolean {
+        return try {
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(file.absolutePath, options)
+            options.outWidth > 0 && options.outHeight > 0
+        } catch (_: Exception) {
+            false
+        }
     }
+
+    /**
+     * Only encrypted HTTPS links are accepted. This blocks cleartext images that another device
+     * on the network could replace, and every scheme that is not http(s).
+     */
+    fun isAllowedRemoteUrl(url: String): Boolean {
+        if (url.isBlank()) return false
+        return try {
+            val uri = java.net.URI(url.trim())
+            uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrEmpty()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isAllowedImageUrl(url: String): Boolean = isAllowedRemoteUrl(url)
 
     private fun decodeSampledBitmapFromFile(path: String, reqWidth: Int, reqHeight: Int): Bitmap? {
         return try {

@@ -11,8 +11,8 @@ android {
         applicationId "com.tvlauncher"
         minSdk 21
         targetSdk 34
-        versionCode 10602
-        versionName "1.6.2"
+        versionCode 40000
+        versionName "4.0"
     }
 
     flavorDimensions "store"
