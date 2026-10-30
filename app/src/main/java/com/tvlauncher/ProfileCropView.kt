@@ -208,7 +208,7 @@ class ProfileCropView @JvmOverloads constructor(
         val side = min(source.width, source.height) / scale
         val left = (centerX + 1f) * 0.5f * (source.width - side)
         val top = (centerY + 1f) * 0.5f * (source.height - side)
-        return Rect(left, top, left + side, top + side)
+        return Rect(left.toInt(), top.toInt(), (left + side).toInt(), (top + side).toInt())
     }
 
     private fun panBy(deltaX: Float, deltaY: Float) {
