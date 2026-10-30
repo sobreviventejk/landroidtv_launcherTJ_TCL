@@ -5,7 +5,8 @@ import java.util.UUID
 
 /**
  * Persists the home layout settings: categories, which app belongs to which category,
- * and the icon size (number of grid columns). The app order itself lives in [AppManager].
+ * the grid arrangement (columns x rows) and the global icon size. The app order itself lives
+ * in [AppManager].
  */
 class LayoutPrefs(context: Context) {
 
@@ -76,7 +77,7 @@ class LayoutPrefs(context: Context) {
         }
     }
 
-    /** Icons per row: more columns = smaller icons. Used as the default for every tab. */
+    /** Items per row of the home grid. The same value is used by every tab. */
     fun getColumns(): Int =
         prefs.getInt(KEY_COLUMNS, DEFAULT_COLUMNS).coerceIn(MIN_COLUMNS, MAX_COLUMNS)
 
@@ -85,26 +86,18 @@ class LayoutPrefs(context: Context) {
     }
 
     /**
-     * Icons per row of one tab ("tab:home", a category id or "tab:all"). Each tab can have its
-     * own icon size; tabs without a saved value follow [getColumns].
+     * Size of every icon, in percent of the base size (100 = default look). It is global: the
+     * home grid, the categories and the "All apps" tab all follow it, and it changes only the
+     * icon itself — never how many items fit per row.
      */
-    fun getColumnsFor(tabKey: String): Int {
-        val saved = readColumnsByTab()[tabKey] ?: return getColumns()
-        return saved.coerceIn(MIN_COLUMNS, MAX_COLUMNS)
-    }
+    fun getIconScalePercent(): Int =
+        prefs.getInt(KEY_ICON_SCALE, DEFAULT_ICON_SCALE)
+            .coerceIn(MIN_ICON_SCALE, MAX_ICON_SCALE)
 
-    /** True when [tabKey] has its own icon size (instead of following the default). */
-    fun hasColumnsFor(tabKey: String): Boolean = readColumnsByTab().containsKey(tabKey)
-
-    fun setColumnsFor(tabKey: String, columns: Int) {
-        val map = readColumnsByTab().toMutableMap()
-        map[tabKey] = columns.coerceIn(MIN_COLUMNS, MAX_COLUMNS)
-        writeColumnsByTab(map)
-    }
-
-    /** Makes every tab use the same icon size again. */
-    fun clearColumnsByTab() {
-        prefs.edit().remove(KEY_COLUMNS_BY_TAB).apply()
+    fun setIconScalePercent(percent: Int) {
+        prefs.edit()
+            .putInt(KEY_ICON_SCALE, percent.coerceIn(MIN_ICON_SCALE, MAX_ICON_SCALE))
+            .apply()
     }
 
     /**
@@ -115,26 +108,6 @@ class LayoutPrefs(context: Context) {
 
     fun setRows(rows: Int) {
         prefs.edit().putInt(KEY_ROWS, rows.coerceIn(MIN_ROWS, MAX_ROWS)).apply()
-    }
-
-    private fun readColumnsByTab(): Map<String, Int> {
-        val raw = prefs.getString(KEY_COLUMNS_BY_TAB, null) ?: return emptyMap()
-        val map = LinkedHashMap<String, Int>()
-        raw.split(';').forEach { pair ->
-            val key = pair.substringBefore('=', "")
-            val value = pair.substringAfter('=', "").toIntOrNull()
-            if (key.isNotEmpty() && value != null) map[key] = value
-        }
-        return map
-    }
-
-    private fun writeColumnsByTab(map: Map<String, Int>) {
-        if (map.isEmpty()) {
-            prefs.edit().remove(KEY_COLUMNS_BY_TAB).apply()
-        } else {
-            val raw = map.entries.joinToString(";") { "${it.key}=${it.value}" }
-            prefs.edit().putString(KEY_COLUMNS_BY_TAB, raw).apply()
-        }
     }
 
     // ---- Greeting (short text at the top of the home screen) --------------------------------
@@ -185,11 +158,31 @@ class LayoutPrefs(context: Context) {
         prefs.edit().putInt(KEY_PALETTE, index.coerceIn(0, Palette.ALL.size - 1)).apply()
     }
 
-    /** Whether the soft aurora glow is drawn behind the home screen. */
-    fun isAuroraEnabled(): Boolean = prefs.getBoolean(KEY_AURORA, true)
+    /**
+     * Background effect drawn behind the home screen, chosen in [ScreenEffect.ALL].
+     *
+     * Older versions only had the aurora glow on/off switch. When that old value exists it is
+     * converted here, so nobody loses the configuration after an update.
+     */
+    fun getScreenEffect(): Int {
+        val saved = prefs.getInt(KEY_SCREEN_EFFECT, -1)
+        if (saved >= 0) return ScreenEffect.of(saved).id
+        val oldAurora = prefs.getBoolean(KEY_AURORA, true)
+        return if (oldAurora) ScreenEffect.AURORA else ScreenEffect.NONE
+    }
 
-    fun setAuroraEnabled(enabled: Boolean) {
-        prefs.edit().putBoolean(KEY_AURORA, enabled).apply()
+    fun setScreenEffect(id: Int) {
+        prefs.edit().putInt(KEY_SCREEN_EFFECT, ScreenEffect.of(id).id).apply()
+    }
+
+    /** True when the launcher should remind the user to set it as the default Home app. */
+    fun shouldAskDefaultLauncher(): Boolean {
+        val lastAsked = prefs.getLong(KEY_ASKED_DEFAULT_LAUNCHER, 0L)
+        return System.currentTimeMillis() - lastAsked >= ASK_DEFAULT_COOLDOWN_MS
+    }
+
+    fun markDefaultLauncherAsked() {
+        prefs.edit().putLong(KEY_ASKED_DEFAULT_LAUNCHER, System.currentTimeMillis()).apply()
     }
 
     /** Index of the icon shape in [IconShapes.ALL]. */
@@ -280,6 +273,11 @@ class LayoutPrefs(context: Context) {
         const val MIN_COLUMNS = 2
         const val MAX_COLUMNS = 15
 
+        /** Range of the global icon size, in percent of the base size. */
+        const val DEFAULT_ICON_SCALE = 100
+        const val MIN_ICON_SCALE = 60
+        const val MAX_ICON_SCALE = 130
+
         const val DEFAULT_ROWS = 3
         const val MIN_ROWS = 1
         const val MAX_ROWS = 15
@@ -290,6 +288,9 @@ class LayoutPrefs(context: Context) {
         const val MAX_GREETING_LENGTH = 200
         const val MIN_MESSAGE_INTERVAL_MS = 60_000L
         const val MAX_MESSAGE_INTERVAL_MS = 24 * 60 * 60 * 1000L
+
+        /** How long to wait before reminding the user about the default Home app again. */
+        private const val ASK_DEFAULT_COOLDOWN_MS = 7L * 24 * 60 * 60 * 1000
 
         /** Text size (sp) of the greeting title for a size [level]. */
         fun greetingTitleSp(level: Int): Float = when (level.coerceIn(GREETING_HIDDEN, GREETING_MAX)) {
@@ -315,7 +316,7 @@ class LayoutPrefs(context: Context) {
         private const val KEY_CATEGORIES = "categories"
         private const val KEY_ASSIGNMENTS = "assignments"
         private const val KEY_COLUMNS = "columns"
-        private const val KEY_COLUMNS_BY_TAB = "columns_by_tab"
+        private const val KEY_ICON_SCALE = "icon_scale_percent"
         private const val KEY_ROWS = "rows"
         private const val KEY_GREETING = "greeting_text"
         private const val KEY_GREETING_SIZE = "greeting_size"
@@ -324,6 +325,8 @@ class LayoutPrefs(context: Context) {
         private const val KEY_MOST_USED = "most_used_enabled"
         private const val KEY_PALETTE = "palette"
         private const val KEY_AURORA = "aurora_enabled"
+        private const val KEY_SCREEN_EFFECT = "screen_effect"
+        private const val KEY_ASKED_DEFAULT_LAUNCHER = "asked_default_launcher"
         private const val KEY_ICON_SHAPE = "icon_shape"
         private const val KEY_AUTO_MESSAGES = "auto_messages_enabled"
         private const val KEY_MESSAGE_INTERVAL_MS = "message_interval_ms"

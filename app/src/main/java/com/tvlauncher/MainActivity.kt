@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Typeface
@@ -239,6 +240,12 @@ class MainActivity : AppCompatActivity() {
         applyWallpaper()
         refreshWeather(force = false)
 
+        // One-time setup: default Home app + Home-key accessibility service. It runs a moment
+        // later so the home screen is already drawn when the first hint appears.
+        mainHandler.postDelayed({
+            if (!isFinishing && !isDestroyed) runStartupSetup()
+        }, 900)
+
         ContextCompat.registerReceiver(
             this,
             refreshReceiver,
@@ -352,13 +359,8 @@ class MainActivity : AppCompatActivity() {
         (allAppsList.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
     }
 
-    /** Columns of the "All apps" tab; it has its own size, independent of the other tabs. */
-    private fun allAppsColumns(): Int =
-        if (layoutPrefs.hasColumnsFor(TAB_ALL)) {
-            layoutPrefs.getColumnsFor(TAB_ALL).coerceIn(ALL_APPS_MIN_COLUMNS, ALL_APPS_MAX_COLUMNS)
-        } else {
-            ALL_APPS_COLUMNS
-        }
+    /** "All apps" is a compact list of two columns; its icons follow the global size bar. */
+    private fun allAppsColumns(): Int = ALL_APPS_COLUMNS
 
     private fun allAppsRowHeightPx(): Int {
         val density = resources.displayMetrics.density
@@ -366,7 +368,11 @@ class MainActivity : AppCompatActivity() {
         return (dp * density).toInt()
     }
 
-    private fun allAppsIconSizePx(): Int = (allAppsRowHeightPx() * 0.62f).toInt()
+    private fun allAppsIconSizePx(): Int {
+        val rowHeight = allAppsRowHeightPx()
+        val scaled = rowHeight * 0.62f * layoutPrefs.getIconScalePercent() / 100f
+        return scaled.toInt().coerceIn(1, rowHeight)
+    }
 
     /** Small horizontal row with the most used apps, shown above the grid of the first tab. */
     private fun setupTopApps() {
@@ -402,7 +408,8 @@ class MainActivity : AppCompatActivity() {
         return AppSlotAdapter.Sizing.forSlot(
             calculateSlotSizePx(columns),
             resources.displayMetrics.density,
-            calculateSlotHeightPx(rows)
+            calculateSlotHeightPx(rows),
+            layoutPrefs.getIconScalePercent()
         )
     }
 
@@ -459,8 +466,9 @@ class MainActivity : AppCompatActivity() {
             topAdapter.accentColor = entry.accent
         }
         auroraView.setPalette(entry)
-        auroraView.visibility =
-            if (layoutPrefs.isAuroraEnabled()) View.VISIBLE else View.GONE
+        val effect = layoutPrefs.getScreenEffect()
+        auroraView.setEffect(effect)
+        auroraView.visibility = if (effect == ScreenEffect.NONE) View.GONE else View.VISIBLE
         weatherIcon.setColorFilter(entry.accent)
         updateTabStyles()
         lastGreeting = null
@@ -673,13 +681,19 @@ class MainActivity : AppCompatActivity() {
             ).apply { marginEnd = (6 * density).toInt() }
         }
         tab.setOnClickListener { onTabClicked(key) }
-        tab.setOnLongClickListener {
-            // Android detects its standard long press first; require the extra 200 ms so the
-            // adjustment only opens after at least 700 ms with the button still held.
-            mainHandler.postDelayed({
-                if (tab.isPressed) openTabAdjustments(key)
-            }, HOME_LONG_PRESS_MS - 500L)
-            true
+        // Only category tabs have a menu of their own: the icon size is global now.
+        if (layoutPrefs.getCategories().any { it.id == key }) {
+            tab.setOnLongClickListener {
+                // Android detects its standard long press first; require the extra 200 ms so the
+                // menu only opens after at least 700 ms with the button still held.
+                mainHandler.postDelayed({
+                    if (tab.isPressed) {
+                        layoutPrefs.getCategories().firstOrNull { it.id == key }
+                            ?.let { showCategoryMenu(it) }
+                    }
+                }, HOME_LONG_PRESS_MS - 500L)
+                true
+            }
         }
         // Like Google TV: moving the focus over a tab already shows its apps.
         tab.setOnFocusChangeListener { _, hasFocus ->
@@ -689,19 +703,6 @@ class MainActivity : AppCompatActivity() {
         }
         tabViews[key] = tab
         tabContainer.addView(tab)
-    }
-
-    private fun openTabAdjustments(key: String) {
-        if (key == TAB_ALL) {
-            showIconSizeDialog(TAB_ALL, getString(R.string.tab_all_apps))
-            return
-        }
-        val category = layoutPrefs.getCategories().firstOrNull { it.id == key }
-        if (category != null) {
-            showCategoryMenu(category)
-        } else {
-            showIconSizeDialog(key, tabDisplayName(key))
-        }
     }
 
     private fun updateTabStyles() {
@@ -766,13 +767,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Applies the icon size saved for the current tab (each category can have its own) and the
-     * global number of rows. Everything follows the same calculation, so 4K screens get
-     * proportionally bigger tiles instead of tiny ones.
+     * Applies the global grid arrangement (columns x rows) and the global icon size. Every tab
+     * shares the same values, so a category never has a size of its own. Everything follows the
+     * same calculation, so 4K screens get proportionally bigger tiles instead of tiny ones.
      */
     private fun applyGridForTab() {
         if (!::appSlotAdapter.isInitialized) return
-        val columns = layoutPrefs.getColumnsFor(currentTab)
+        val columns = layoutPrefs.getColumns()
         val rows = layoutPrefs.getRows()
         if (gridLayoutManager.spanCount != columns) gridLayoutManager.spanCount = columns
         val sizing = buildSizing(columns, rows)
@@ -1041,8 +1042,6 @@ class MainActivity : AppCompatActivity() {
         val options = mutableListOf<String>()
         val actions = mutableListOf<() -> Unit>()
 
-        options.add(getString(R.string.category_icon_size))
-        actions.add { showIconSizeDialog(category.id, category.name) }
         options.add(getString(R.string.category_rename))
         actions.add {
             promptCategoryName(R.string.category_rename, category.name) { name ->
@@ -1504,7 +1503,7 @@ class MainActivity : AppCompatActivity() {
         val options = mutableListOf<String>()
         val actions = mutableListOf<() -> Unit>()
 
-        options.add(getString(R.string.customize_icon_size_tab, tabDisplayName(currentTab)))
+        options.add(getString(R.string.customize_icon_size))
         actions.add { showIconSizeDialog() }
         options.add(getString(R.string.customize_grid_arrangement))
         actions.add { showGridDialog() }
@@ -1514,11 +1513,8 @@ class MainActivity : AppCompatActivity() {
         actions.add { showGreetingSizeDialog() }
         options.add(getString(R.string.customize_palette))
         actions.add { showPaletteDialog() }
-        options.add(stateLabel(R.string.customize_aurora, layoutPrefs.isAuroraEnabled()))
-        actions.add {
-            layoutPrefs.setAuroraEnabled(!layoutPrefs.isAuroraEnabled())
-            applyPalette()
-        }
+        options.add(getString(R.string.customize_screen_effect, effectLabel(layoutPrefs.getScreenEffect())))
+        actions.add { showScreenEffectDialog() }
         options.add(stateLabel(R.string.customize_auto_messages, layoutPrefs.isAutoMessagesEnabled()))
         actions.add {
             layoutPrefs.setAutoMessagesEnabled(!layoutPrefs.isAutoMessagesEnabled())
@@ -1564,6 +1560,31 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
+    private fun effectLabel(id: Int): String = getString(ScreenEffect.of(id).nameRes)
+
+    /**
+     * Chooses the effect drawn behind the apps. Every option is previewed immediately, so the
+     * user can see the result while the dialog is open.
+     */
+    private fun showScreenEffectDialog() {
+        val entries = ScreenEffect.ALL
+        val labels = entries.map { effectLabel(it.id) }.toTypedArray()
+        val checked = entries.indexOfFirst { it.id == layoutPrefs.getScreenEffect() }
+            .coerceAtLeast(0)
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_screen_effect_title)
+            .setMessage(R.string.screen_effect_hint)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                val id = entries[which].id
+                layoutPrefs.setScreenEffect(id)
+                applyPalette()
+                CrashLog.log(this, "Efeito de tela: ${effectLabel(id)}")
+                dialog.dismiss()
+            }
+            .setNegativeButton(R.string.close, null)
+            .show()
+    }
+
     private fun tabDisplayName(key: String): String = when (key) {
         TAB_HOME -> getString(R.string.tab_home)
         TAB_ALL -> getString(R.string.tab_all_apps)
@@ -1572,17 +1593,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Icon size of one tab, chosen with a bar instead of a long list of words: dragging to the
-     * right makes the icons bigger (fewer per row).
+     * Global icon size, chosen with a bar: dragging to the right makes every icon bigger and to
+     * the left smaller. The grid arrangement (items per row) is not touched here.
      */
-    private fun showIconSizeDialog(
-        tabKey: String = currentTab,
-        tabName: String = tabDisplayName(currentTab)
-    ) {
-        val isAllApps = tabKey == TAB_ALL
-        val minColumns = if (isAllApps) ALL_APPS_MIN_COLUMNS else LayoutPrefs.MIN_COLUMNS
-        val maxColumns = if (isAllApps) ALL_APPS_MAX_COLUMNS else LayoutPrefs.MAX_COLUMNS
-        val current = if (isAllApps) allAppsColumns() else layoutPrefs.getColumnsFor(tabKey)
+    private fun showIconSizeDialog() {
+        val minScale = LayoutPrefs.MIN_ICON_SCALE
+        val maxScale = LayoutPrefs.MAX_ICON_SCALE
+        val current = layoutPrefs.getIconScalePercent()
         val density = resources.displayMetrics.density
 
         val container = LinearLayout(this).apply {
@@ -1604,20 +1621,21 @@ class MainActivity : AppCompatActivity() {
             setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
             setPadding(0, (8 * density).toInt(), 0, 0)
         }
-        // progress 0 = the most columns (smallest icons); the right side = biggest icons.
+        // progress 0 = smallest icon (left); the right side = biggest icon.
         val seek = SeekBar(this).apply {
-            this.max = maxColumns - minColumns
-            progress = (maxColumns - current).coerceIn(0, this.max)
+            this.max = maxScale - minScale
+            progress = (current - minScale).coerceIn(0, this.max)
         }
-        fun columns(): Int = maxColumns - seek.progress
+        fun percent(): Int = minScale + seek.progress
         fun updateLabel() {
-            valueText.text = getString(R.string.icon_size_bar_value, columns())
+            valueText.text = getString(R.string.icon_size_bar_value, percent())
         }
         seek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) =
                 updateLabel()
 
             override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+
             override fun onStopTrackingTouch(bar: SeekBar?) = Unit
         })
         updateLabel()
@@ -1626,10 +1644,10 @@ class MainActivity : AppCompatActivity() {
         container.addView(hint)
 
         val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
-            .setTitle(getString(R.string.icon_size_title_for, tabName))
+            .setTitle(R.string.customize_icon_size)
             .setView(container)
             .setPositiveButton(R.string.apply) { _, _ ->
-                applyIconColumnsForTab(tabKey, columns())
+                applyIconScale(percent())
             }
             .setNegativeButton(R.string.cancel, null)
             .create()
@@ -1655,7 +1673,7 @@ class MainActivity : AppCompatActivity() {
         }
         val columnsBar = SeekBar(this).apply {
             max = LayoutPrefs.MAX_COLUMNS - LayoutPrefs.MIN_COLUMNS
-            progress = (LayoutPrefs.MAX_COLUMNS - layoutPrefs.getColumns()).coerceIn(0, max)
+            progress = (layoutPrefs.getColumns() - LayoutPrefs.MIN_COLUMNS).coerceIn(0, max)
         }
         val rowsText = TextView(this).apply {
             textSize = 15f
@@ -1664,16 +1682,10 @@ class MainActivity : AppCompatActivity() {
         }
         val rowsBar = SeekBar(this).apply {
             max = LayoutPrefs.MAX_ROWS - LayoutPrefs.MIN_ROWS
-            progress = (LayoutPrefs.MAX_ROWS - layoutPrefs.getRows()).coerceIn(0, max)
+            progress = (layoutPrefs.getRows() - LayoutPrefs.MIN_ROWS).coerceIn(0, max)
         }
-        fun columns(): Int = (LayoutPrefs.MAX_COLUMNS - columnsBar.progress).coerceIn(
-            LayoutPrefs.MIN_COLUMNS,
-            LayoutPrefs.MAX_COLUMNS
-        )
-        fun rows(): Int = (LayoutPrefs.MAX_ROWS - rowsBar.progress).coerceIn(
-            LayoutPrefs.MIN_ROWS,
-            LayoutPrefs.MAX_ROWS
-        )
+        fun columns(): Int = LayoutPrefs.MIN_COLUMNS + columnsBar.progress
+        fun rows(): Int = LayoutPrefs.MIN_ROWS + rowsBar.progress
         fun updateLabels() {
             columnsText.text = getString(R.string.grid_columns_value, columns())
             rowsText.text = getString(R.string.grid_rows_value, rows())
@@ -1712,8 +1724,7 @@ class MainActivity : AppCompatActivity() {
                 layoutPrefs.setColumns(columns())
                 layoutPrefs.setRows(rows())
                 CrashLog.log(this, "Arranjo da grade: ${columns()} colunas x ${rows()} linhas")
-                // The arrangement is global: every tab starts using the same grid again.
-                layoutPrefs.clearColumnsByTab()
+                // The arrangement is global: every tab follows the same grid.
                 applyGridForTab()
                 refreshAllAppsGrid()
                 refreshContent(lastFocusedKey, requestFocus = false)
@@ -1724,19 +1735,15 @@ class MainActivity : AppCompatActivity() {
         dialog.show()
     }
 
-    /** Changes the icon size of [tabKey] only; applies immediately and keeps the focus. */
-    private fun applyIconColumnsForTab(tabKey: String, columns: Int) {
-        layoutPrefs.setColumnsFor(tabKey, columns)
-        CrashLog.log(this, "Ícones de ${tabDisplayName(tabKey)}: $columns por linha")
-        if (tabKey == TAB_ALL) {
-            refreshAllAppsGrid()
-            return
-        }
-        // Icons are rendered at a fixed pixel size, so drop the old ones and redraw.
-        appSlotAdapter.currentList.forEach { it.appInfo?.clearIcon() }
-        appManager.invalidateAppListCache()
-        if (currentTab == tabKey) {
-            applyGridForTab()
+    /** Changes the icon size of every tab; applies immediately and keeps the focus. */
+    private fun applyIconScale(percent: Int) {
+        layoutPrefs.setIconScalePercent(percent)
+        CrashLog.log(this, "Tamanho dos ícones: $percent% do padrão")
+        applyGridForTab()
+        refreshAllAppsGrid()
+        if (currentTab == TAB_ALL) {
+            refreshAllApps(requestFocus = false)
+        } else {
             refreshContent(lastFocusedKey, requestFocus = false)
             restoreFocus(lastFocusedKey)
         }
@@ -1866,16 +1873,87 @@ class MainActivity : AppCompatActivity() {
     private fun showAdbHelpDialog() {
         AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
             .setTitle(R.string.accessibility_adb_title)
-            .setMessage(getString(R.string.accessibility_adb_message, AccessibilityEnabler.ADB_COMMAND))
+            .setMessage(
+                getString(
+                    R.string.accessibility_adb_message,
+                    AccessibilityEnabler.ADB_COMMAND,
+                    AccessibilityEnabler.HOME_ADB_COMMAND
+                )
+            )
             .setPositiveButton(R.string.close, null)
             .show()
     }
 
     // ---- Home key accessibility service ----
 
-    // The launcher never asks for accessibility at start: the Android of some TVs disables the
-    // service right after it is enabled, and the popup would appear on every return. Everything
-    // about it lives in "Configurações avançadas" instead.
+    /**
+     * Brings the Home button back after install or update.
+     *
+     * 1. If the one-time ADB permission was granted, the service is turned on silently. The
+     *    value is read back afterwards, because some TVs switch the service off again.
+     * 2. Otherwise the launcher asks once, so the user does not have to find the option deep in
+     *    the Android settings.
+     */
+    private fun ensureAccessibilityReady() {
+        if (TvHomeOverrideService.isAccessibilityServiceEnabled(this)) return
+        if (AccessibilityEnabler.tryEnable(this)) {
+            CrashLog.log(this, "Serviço de acessibilidade religado automaticamente")
+            return
+        }
+        if (!AccessibilityEnabler.shouldAskToEnable(this)) return
+        AccessibilityEnabler.markAskedToEnable(this)
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.accessibility_start_title)
+            .setMessage(R.string.accessibility_start_message)
+            .setPositiveButton(R.string.accessibility_start_enable) { _, _ ->
+                openAccessibilitySettings()
+            }
+            .setNeutralButton(R.string.accessibility_start_adb) { _, _ -> showAdbHelpDialog() }
+            .setNegativeButton(R.string.now_not, null)
+            .show()
+    }
+
+    /** Silent retry: the TV may have turned the service off while the app was in background. */
+    private fun retryAccessibilitySilently() {
+        if (TvHomeOverrideService.isAccessibilityServiceEnabled(this)) return
+        if (AccessibilityEnabler.tryEnable(this)) {
+            CrashLog.log(this, "Serviço de acessibilidade religado ao voltar para a launcher")
+        }
+    }
+
+    /**
+     * First-start helper. If this launcher is not the default Home app, it shows one short hint
+     * (with the ADB command for TVs that hide the picker, like many TCL models). After that it
+     * checks the accessibility service, which is what makes the Home key return here.
+     */
+    private fun runStartupSetup() {
+        if (!isDefaultLauncher() && layoutPrefs.shouldAskDefaultLauncher()) {
+            layoutPrefs.markDefaultLauncherAsked()
+            var openedSettings = false
+            AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+                .setTitle(R.string.default_launcher_start_title)
+                .setMessage(
+                    getString(
+                        R.string.default_launcher_start_message,
+                        AccessibilityEnabler.HOME_ADB_COMMAND
+                    )
+                )
+                .setPositiveButton(R.string.default_launcher_set_now) { _, _ ->
+                    openedSettings = true
+                    requestDefaultLauncher()
+                }
+                .setNeutralButton(R.string.default_launcher_adb) { _, _ ->
+                    showAdbHelpDialog()
+                }
+                .setNegativeButton(R.string.now_not, null)
+                .setOnDismissListener {
+                    if (!openedSettings) ensureAccessibilityReady()
+                }
+                .show()
+            return
+        }
+        ensureAccessibilityReady()
+    }
 
     // ---- Wallpaper ----
 
@@ -2746,11 +2824,23 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /** True after the system settings were opened, so onResume can report the result. */
+    private var pendingDefaultCheck = false
+
     /** Asks Android to make this launcher the default Home app. */
     @Suppress("DEPRECATION")
     private fun requestDefaultLauncher() {
-        TvHomeOverrideService.pauseOverrideFor(8000)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (isDefaultLauncher()) {
+            Toast.makeText(this, R.string.advanced_already_default, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // The system dialogs must never be covered by the stock-launcher hijack.
+        TvHomeOverrideService.pauseOverrideFor(20_000)
+
+        // On TVs the RoleManager dialog usually does not exist and, when it does, it often has
+        // no effect. The "Home screen" picker in the system settings is the screen that really
+        // changes the default launcher there, so TVs go straight to it.
+        if (!isTelevision() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 val roleManager = getSystemService(RoleManager::class.java)
                 if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
@@ -2768,19 +2858,33 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
             }
         }
-        val intents = listOf(
+
+        val intents = mutableListOf(
             Intent(Settings.ACTION_HOME_SETTINGS),
-            Intent("android.settings.HOME_SETTINGS"),
-            Intent(Settings.ACTION_SETTINGS)
+            Intent("android.settings.HOME_SETTINGS")
         )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            intents.add(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+        }
+        intents.add(Intent(Settings.ACTION_APPLICATION_SETTINGS))
+        intents.add(Intent(Settings.ACTION_SETTINGS))
         for (intent in intents) {
             try {
+                pendingDefaultCheck = true
                 startActivity(intent)
                 return
             } catch (_: Exception) {
+                pendingDefaultCheck = false
             }
         }
-        Toast.makeText(this, R.string.advanced_default_unavailable, Toast.LENGTH_LONG).show()
+        // No picker at all: on locked TVs (many TCL models) the ADB command is the only way.
+        showAdbHelpDialog()
+    }
+
+    /** True when the device declares itself as a TV in its UI mode. */
+    private fun isTelevision(): Boolean {
+        val mode = resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK
+        return mode == Configuration.UI_MODE_TYPE_TELEVISION
     }
 
     /** Result of the system "default Home app" role dialog, so the user knows if it worked. */
@@ -2845,7 +2949,8 @@ class MainActivity : AppCompatActivity() {
         builder.appendLine("Aba atual: ${tabDisplayName(currentTab)}")
         builder.appendLine("Botão Home: acessibilidade=${TvHomeOverrideService.isAccessibilityServiceEnabled(this)}, override=${TvHomeOverrideService.isHomeOverrideEnabled(this)}")
         builder.appendLine("Launcher padrão: ${if (isDefaultLauncher()) "sim" else "não"}")
-        builder.appendLine("Grade: ${layoutPrefs.getColumnsFor(currentTab)} colunas x ${layoutPrefs.getRows()} linhas")
+        builder.appendLine("Grade: ${layoutPrefs.getColumns()} colunas x ${layoutPrefs.getRows()} linhas")
+        builder.appendLine("Tamanho dos ícones: ${layoutPrefs.getIconScalePercent()}%")
         builder.appendLine("Categorias: ${layoutPrefs.getCategories().size}")
         builder.appendLine("Papel de parede: ${WallpaperManager.getWallpaperMode(this)}")
         builder.appendLine("Memória livre: ${RamOptimizationHelper.availableMemoryMb(this)} MB")
@@ -2892,7 +2997,19 @@ class MainActivity : AppCompatActivity() {
                 @Suppress("DEPRECATION")
                 packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
             }
-            resolved?.activityInfo?.packageName == packageName
+            val resolvedPackage = resolved?.activityInfo?.packageName
+            // "android" here means the system is showing the "choose an app" screen, so the
+            // resolution alone cannot tell us the answer.
+            if (resolvedPackage != null && resolvedPackage != "android") {
+                return resolvedPackage == packageName
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val roleManager = getSystemService(RoleManager::class.java)
+                if (roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_HOME)) {
+                    return roleManager.isRoleHeld(RoleManager.ROLE_HOME)
+                }
+            }
+            resolvedPackage == packageName
         } catch (_: Exception) {
             false
         }
@@ -2988,6 +3105,17 @@ class MainActivity : AppCompatActivity() {
         val grabFocus = currentFocus == null || appSlots.hasFocus() || allAppsList.hasFocus()
         refreshContent(lastFocusedKey, requestFocus = grabFocus)
         applyWallpaper(force = false)
+        retryAccessibilitySilently()
+        // The user may have just changed the default launcher in the system settings.
+        if (pendingDefaultCheck) {
+            pendingDefaultCheck = false
+            if (isDefaultLauncher()) {
+                Toast.makeText(this, R.string.advanced_default_granted, Toast.LENGTH_LONG).show()
+                CrashLog.log(this, "Launcher definida como padrão do sistema")
+            } else {
+                CrashLog.log(this, "Troca de launcher padrão não concluída")
+            }
+        }
         RamOptimizationHelper.suppressStockLauncherRam(applicationContext)
         mainHandler.removeCallbacks(wallpaperTicker)
         mainHandler.postDelayed(wallpaperTicker, WALLPAPER_CHECK_MS)
@@ -3022,8 +3150,6 @@ class MainActivity : AppCompatActivity() {
 
         /** "All apps" is a compact list, so it allows fewer columns than the home grid. */
         private const val ALL_APPS_COLUMNS = 2
-        private const val ALL_APPS_MIN_COLUMNS = 2
-        private const val ALL_APPS_MAX_COLUMNS = 8
         private const val WALLPAPER_CHECK_MS = 15_000L
         private const val WEATHER_UI_REFRESH_MS = 30 * 60 * 1000L
 

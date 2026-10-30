@@ -38,7 +38,6 @@ private class ForecastDialog(
     private val onUpdated: (Weather.Forecast?) -> Unit
 ) {
     private val dialog = Dialog(activity, R.style.Theme_TVLauncher_AboutDialog)
-    private lateinit var rootView: View
     private val currentSummary: View
     private val currentIcon: ImageView
     private val currentTemperature: TextView
@@ -57,19 +56,18 @@ private class ForecastDialog(
 
     init {
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        rootView = LayoutInflater.from(activity).inflate(R.layout.weather_v42_dialog, null, false)
-        dialog.setContentView(rootView)
+        dialog.setContentView(R.layout.weather_v42_dialog)
 
-        currentSummary = rootView.findViewById(R.id.weatherV42CurrentSummary)
-        currentIcon = rootView.findViewById(R.id.weatherV42CurrentIcon)
-        currentTemperature = rootView.findViewById(R.id.weatherV42CurrentTemperature)
-        currentCondition = rootView.findViewById(R.id.weatherV42CurrentCondition)
-        daysTitle = rootView.findViewById(R.id.weatherV42DaysTitle)
-        daysScroll = rootView.findViewById(R.id.weatherV42DaysScroll)
-        daysContainer = rootView.findViewById(R.id.weatherV42DaysContainer)
-        statusText = rootView.findViewById(R.id.weatherV42Status)
-        refreshProgress = rootView.findViewById(R.id.weatherV42RefreshProgress)
-        refreshButton = rootView.findViewById(R.id.weatherV42Refresh)
+        currentSummary = dialog.findViewById(R.id.weatherV42CurrentSummary)
+        currentIcon = dialog.findViewById(R.id.weatherV42CurrentIcon)
+        currentTemperature = dialog.findViewById(R.id.weatherV42CurrentTemperature)
+        currentCondition = dialog.findViewById(R.id.weatherV42CurrentCondition)
+        daysTitle = dialog.findViewById(R.id.weatherV42DaysTitle)
+        daysScroll = dialog.findViewById(R.id.weatherV42DaysScroll)
+        daysContainer = dialog.findViewById(R.id.weatherV42DaysContainer)
+        statusText = dialog.findViewById(R.id.weatherV42Status)
+        refreshProgress = dialog.findViewById(R.id.weatherV42RefreshProgress)
+        refreshButton = dialog.findViewById(R.id.weatherV42Refresh)
 
         currentIcon.setColorFilter(Color.rgb(165, 180, 252))
         refreshButton.setOnClickListener { load(force = true) }

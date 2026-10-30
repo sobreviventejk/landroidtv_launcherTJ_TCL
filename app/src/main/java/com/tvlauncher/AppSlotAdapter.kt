@@ -61,27 +61,43 @@ class AppSlotAdapter(
         val plusTopPx: Int,
         val plusTextSp: Float,
         /** Height can follow the row setting independently of the width/column setting. */
-        val slotHeightPx: Int = slotPx
+        val slotHeightPx: Int = slotPx,
+        /** Icon size in percent of the base icon (100 = default look). */
+        val iconScalePercent: Int = LayoutPrefs.DEFAULT_ICON_SCALE
     ) {
         companion object {
             private const val BASE_SLOT_DP = 130f
 
+            /** Fraction of the tile used by the icon at 100%: room to grow when the user asks. */
+            private const val BASE_ICON_FRACTION = 0.86f
+
             /**
-             * Google TV style: the icon takes most of the tile (~78%) and the name only appears
+             * Google TV style: the icon takes most of the tile (~86%) and the name only appears
              * while the tile is focused, so the grid looks like a wall of icons.
+             *
+             * [iconScalePercent] only changes the icon inside its tile; the number of items per
+             * row keeps coming from the grid arrangement.
              */
-            fun forSlot(slotPx: Int, density: Float, slotHeightPx: Int = slotPx): Sizing {
+            fun forSlot(
+                slotPx: Int,
+                density: Float,
+                slotHeightPx: Int = slotPx,
+                iconScalePercent: Int = LayoutPrefs.DEFAULT_ICON_SCALE
+            ): Sizing {
                 val scale = slotPx / (BASE_SLOT_DP * density)
+                val iconFactor = iconScalePercent
+                    .coerceIn(LayoutPrefs.MIN_ICON_SCALE, LayoutPrefs.MAX_ICON_SCALE) / 100f
                 return Sizing(
                     slotPx = slotPx,
-                    iconPx = (slotPx * 0.78f).toInt(),
+                    iconPx = (slotPx * BASE_ICON_FRACTION * iconFactor).toInt().coerceAtLeast(1),
                     iconTopPx = (slotHeightPx * 0.05f).toInt(),
                     textSp = (11f * scale).coerceIn(10f, 16f),
                     nameLines = 1,
                     plusPx = (slotPx * 56f / BASE_SLOT_DP).toInt(),
                     plusTopPx = (slotHeightPx * 0.15f).toInt(),
                     plusTextSp = (30f * scale).coerceIn(22f, 44f),
-                    slotHeightPx = slotHeightPx
+                    slotHeightPx = slotHeightPx,
+                    iconScalePercent = iconScalePercent
                 )
             }
         }
@@ -309,19 +325,21 @@ class AppSlotAdapter(
         }
 
         val modernCard = iconShape == IconShapes.DEFAULT
-        val iconWidth: Int
-        val iconHeight: Int
+        val iconFactor = s.iconScalePercent
+            .coerceIn(LayoutPrefs.MIN_ICON_SCALE, LayoutPrefs.MAX_ICON_SCALE) / 100f
+        val baseWidth: Float
+        val baseHeight: Float
         if (modernCard) {
             // Reference layout: a rounded horizontal card, with the original icon fitted inside.
-            iconWidth = (s.slotPx * 0.92f).toInt().coerceAtLeast(1)
-            iconHeight = minOf(
-                (s.slotHeightPx * 0.62f).toInt(),
-                (s.slotPx * 0.68f).toInt()
-            ).coerceAtLeast(1)
+            baseWidth = s.slotPx * 0.86f
+            baseHeight = minOf(s.slotHeightPx * 0.62f, s.slotPx * 0.86f)
         } else {
-            iconWidth = (minOf(s.slotPx, s.slotHeightPx) * 0.74f).toInt().coerceAtLeast(1)
-            iconHeight = iconWidth
+            baseWidth = minOf(s.slotPx, s.slotHeightPx) * 0.74f
+            baseHeight = baseWidth
         }
+        // The size bar scales the icon itself; it never changes how many items fit per row.
+        val iconWidth = (baseWidth * iconFactor).toInt().coerceIn(1, s.slotPx.coerceAtLeast(1))
+        val iconHeight = (baseHeight * iconFactor).toInt().coerceIn(1, s.slotHeightPx.coerceAtLeast(1))
 
         val iconParams = holder.appIcon.layoutParams as ConstraintLayout.LayoutParams
         if (iconParams.width != iconWidth || iconParams.height != iconHeight ||

@@ -6,7 +6,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
-import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.Gravity
@@ -204,11 +203,11 @@ class ProfileCropView @JvmOverloads constructor(
         preview.invalidate()
     }
 
-    private fun sourceCropRect(source: Bitmap): Rect {
+    private fun sourceCropRect(source: Bitmap): RectF {
         val side = min(source.width, source.height) / scale
         val left = (centerX + 1f) * 0.5f * (source.width - side)
         val top = (centerY + 1f) * 0.5f * (source.height - side)
-        return Rect(left.toInt(), top.toInt(), (left + side).toInt(), (top + side).toInt())
+        return RectF(left, top, left + side, top + side)
     }
 
     private fun panBy(deltaX: Float, deltaY: Float) {

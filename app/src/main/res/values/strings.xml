@@ -89,8 +89,8 @@
     <string name="enable">Ativar</string>
     <string name="accessibility_service_description">Permite que a TV Launcher detecte o botão Home do controle e volte para esta launcher.</string>
     <string name="accessibility_auto_enabled">Botão Home ativado automaticamente.</string>
-    <string name="accessibility_adb_title">Ativação automática</string>
-    <string name="accessibility_adb_message">Se a TV desligar o serviço sozinha, libere uma vez a permissão abaixo por ADB. Depois disso a launcher liga o serviço sozinha sempre que abrir.\n\n%1$s</string>
+    <string name="accessibility_adb_title">Ativação por ADB</string>
+    <string name="accessibility_adb_message">Se a TV desligar o serviço sozinha, libere uma vez a permissão abaixo por ADB. Depois disso a launcher liga o serviço sozinha sempre que abrir.\n\nAcessibilidade e botão Home:\n%1$s\n\nLauncher padrão (quando a TV não mostra a tela de escolha):\n%2$s</string>
     <string name="close">Fechar</string>
 
     <!-- Papel de parede -->
@@ -162,7 +162,6 @@
     <!-- Identidade visual, formato dos ícones, mensagens automáticas e previsão do tempo -->
     <string name="customize_icon_shape">Formato dos ícones</string>
     <string name="customize_palette">Paleta de cores</string>
-    <string name="customize_aurora">Aurora no fundo</string>
     <string name="customize_auto_messages">Frases automáticas (poemas, piadas e mensagens)</string>
     <string name="customize_message_kinds">Tipos de mensagem automática</string>
     <string name="customize_message_target">Para quem são as mensagens</string>

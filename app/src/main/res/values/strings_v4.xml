@@ -17,15 +17,13 @@
     <string name="search_results_count">%1$d apps encontrados</string>
 
     <!-- Tamanho dos ícones e arranjo -->
-    <string name="customize_icon_size_tab">Tamanho dos ícones (%1$s)</string>
-    <string name="icon_size_title_for">Tamanho dos ícones: %1$s</string>
-    <string name="icon_size_bar_hint">Arraste para a direita para aumentar os ícones e para a esquerda para diminuir.</string>
-    <string name="icon_size_bar_value">%1$d ícones por linha</string>
-    <string name="category_icon_size">Tamanho dos ícones desta categoria</string>
+    <string name="customize_icon_size">Tamanho dos ícones</string>
+    <string name="icon_size_bar_hint">Arraste para a direita para aumentar os ícones e para a esquerda para diminuir. Vale para todas as abas.</string>
+    <string name="icon_size_bar_value">Tamanho: %1$d%% do padrão</string>
     <string name="customize_grid_arrangement">Arranjo dos ícones (linhas x colunas)</string>
     <string name="grid_columns_value">Colunas: %1$d</string>
     <string name="grid_rows_value">Linhas: %1$d</string>
-    <string name="grid_arrangement_hint">Este arranjo vale para todas as abas. Máximo de 15 linhas por 15 colunas. Os tamanhos dos ícones e dos textos acompanham o arranjo.</string>
+    <string name="grid_arrangement_hint">Este arranjo vale para todas as abas. Máximo de 15 linhas por 15 colunas. O tamanho dos ícones é ajustado em Tamanho dos ícones.</string>
 
     <!-- Avatar e painel do sistema -->
     <string name="profile_title">Perfil</string>
@@ -50,6 +48,32 @@
     <string name="dashboard_storage">ARMAZENAMENTO INTERNO</string>
     <string name="dashboard_storage_value">Total: %1$s · Em uso: %2$s · Livre: %3$s (%4$d%% usado)</string>
     <string name="dashboard_refresh">Atualizar</string>
+
+    <!-- Efeitos de tela (aurora, vinhetas e outros) -->
+    <string name="customize_screen_effect">Efeito de tela: %1$s</string>
+    <string name="customize_screen_effect_title">Efeito de tela</string>
+    <string name="screen_effect_hint">Escolha o efeito desenhado atrás dos aplicativos. As cores acompanham a paleta escolhida.</string>
+    <string name="effect_none">Nenhum (fundo limpo)</string>
+    <string name="effect_aurora">Aurora</string>
+    <string name="effect_vignette">Vinheta escura</string>
+    <string name="effect_colored_vignette">Vinheta colorida</string>
+    <string name="effect_mist">Neblina</string>
+    <string name="effect_stars">Estrelas</string>
+    <string name="effect_waves">Ondas</string>
+    <string name="effect_neon">Moldura neon</string>
+    <string name="effect_grid">Grade retrô</string>
+    <string name="effect_bokeh">Bolinhas (bokeh)</string>
+
+    <!-- Primeira configuração: launcher padrão e botão Home -->
+    <string name="default_launcher_start_title">Definir como launcher padrão</string>
+    <string name="default_launcher_start_message">A TJ TV Launcher ainda não é a launcher padrão desta TV.\n\nToque em "Definir agora" para abrir a tela de escolha. Se a sua TV não mostrar essa tela (é comum nas TCL), use o ADB uma vez:\n\n%1$s</string>
+    <string name="default_launcher_set_now">Definir agora</string>
+    <string name="default_launcher_adb">Ver comando ADB</string>
+    <string name="accessibility_start_title">Ativar o botão Home</string>
+    <string name="accessibility_start_message">Para o botão Home do controle abrir esta launcher, ative o serviço de acessibilidade da TJ TV Launcher.\n\nSe a TV desligar o serviço sozinha, libere a permissão por ADB uma vez e a launcher religa o serviço automaticamente sempre que abrir.</string>
+    <string name="accessibility_start_enable">Ativar agora</string>
+    <string name="accessibility_start_adb">Como fazer por ADB</string>
+    <string name="now_not">Agora não</string>
 
     <!-- Configurações avançadas -->
     <string name="advanced_settings">Configurações avançadas</string>
