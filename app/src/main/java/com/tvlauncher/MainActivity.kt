@@ -1655,7 +1655,7 @@ class MainActivity : AppCompatActivity() {
         }
         val columnsBar = SeekBar(this).apply {
             max = LayoutPrefs.MAX_COLUMNS - LayoutPrefs.MIN_COLUMNS
-            progress = (layoutPrefs.getColumns() - LayoutPrefs.MIN_COLUMNS).coerceIn(0, max)
+            progress = (LayoutPrefs.MAX_COLUMNS - layoutPrefs.getColumns()).coerceIn(0, max)
         }
         val rowsText = TextView(this).apply {
             textSize = 15f
@@ -1664,10 +1664,16 @@ class MainActivity : AppCompatActivity() {
         }
         val rowsBar = SeekBar(this).apply {
             max = LayoutPrefs.MAX_ROWS - LayoutPrefs.MIN_ROWS
-            progress = (layoutPrefs.getRows() - LayoutPrefs.MIN_ROWS).coerceIn(0, max)
+            progress = (LayoutPrefs.MAX_ROWS - layoutPrefs.getRows()).coerceIn(0, max)
         }
-        fun columns(): Int = LayoutPrefs.MIN_COLUMNS + columnsBar.progress
-        fun rows(): Int = LayoutPrefs.MIN_ROWS + rowsBar.progress
+        fun columns(): Int = (LayoutPrefs.MAX_COLUMNS - columnsBar.progress).coerceIn(
+            LayoutPrefs.MIN_COLUMNS,
+            LayoutPrefs.MAX_COLUMNS
+        )
+        fun rows(): Int = (LayoutPrefs.MAX_ROWS - rowsBar.progress).coerceIn(
+            LayoutPrefs.MIN_ROWS,
+            LayoutPrefs.MAX_ROWS
+        )
         fun updateLabels() {
             columnsText.text = getString(R.string.grid_columns_value, columns())
             rowsText.text = getString(R.string.grid_rows_value, rows())
