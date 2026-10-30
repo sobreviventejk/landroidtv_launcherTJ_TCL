@@ -70,7 +70,7 @@ class AllAppsAdapter(
         val iconPx = iconSizePx()
         holder.icon.layoutParams = holder.icon.layoutParams.apply {
             width = iconPx
-            height = iconPx
+            this.height = iconPx
         }
         holder.icon.setImageDrawable(
             row.app.getIcon(holder.itemView.context.packageManager, iconPx)
