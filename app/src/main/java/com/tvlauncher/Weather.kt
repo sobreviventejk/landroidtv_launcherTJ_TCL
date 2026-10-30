@@ -31,7 +31,8 @@ object Weather {
     private const val TIMEOUT_MS = 10_000
 
     private val executor = Executors.newSingleThreadExecutor()
-    private val mainHandler = Handler(Looper.getMainLooper())
+    // Lazy so the pure forecast helpers can also run in local JVM unit tests.
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
     /** One day of the week forecast. */
     data class Day(

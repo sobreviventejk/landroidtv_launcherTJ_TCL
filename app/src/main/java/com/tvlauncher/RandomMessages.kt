@@ -90,5 +90,8 @@ object RandomMessages {
         return entry.template.replace(PLACEHOLDER, nameFor(target, slot))
     }
 
-    private fun positive(value: Long): Long = ((value % Long.MAX_VALUE) + Long.MAX_VALUE) % Long.MAX_VALUE
+    private fun positive(value: Long): Long {
+        val remainder = value % Long.MAX_VALUE
+        return if (remainder < 0) remainder + Long.MAX_VALUE else remainder
+    }
 }
