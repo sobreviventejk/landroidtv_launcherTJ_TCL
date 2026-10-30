@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="weather_v42_title">Previsão da semana</string>
+    <string name="weather_v42_location">Belém, PA · Terra Firme</string>
+    <string name="weather_v42_current_label">AGORA</string>
+    <string name="weather_v42_current_temperature">%1$d°</string>
+    <string name="weather_v42_days_title">Próximos 7 dias</string>
+    <string name="weather_v42_today">Hoje</string>
+    <string name="weather_v42_tomorrow">Amanhã</string>
+    <string name="weather_v42_unknown_day">Dia</string>
+    <string name="weather_v42_rain_chance">Chance de chuva: %1$d%%</string>
+    <string name="weather_v42_max_temperature">Máx. %1$d°</string>
+    <string name="weather_v42_min_temperature">Mín. %1$d°</string>
+    <string name="weather_v42_refresh">Atualizar</string>
+    <string name="weather_v42_refreshing">Atualizando…</string>
+    <string name="weather_v42_loading">Carregando a previsão…</string>
+    <string name="weather_v42_unavailable">Não foi possível carregar a previsão.\nVerifique a conexão e use Atualizar para tentar novamente.</string>
+</resources>

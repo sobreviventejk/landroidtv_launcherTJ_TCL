@@ -59,7 +59,9 @@ class AppSlotAdapter(
         val nameLines: Int,
         val plusPx: Int,
         val plusTopPx: Int,
-        val plusTextSp: Float
+        val plusTextSp: Float,
+        /** Height can follow the row setting independently of the width/column setting. */
+        val slotHeightPx: Int = slotPx
     ) {
         companion object {
             private const val BASE_SLOT_DP = 130f
@@ -68,17 +70,18 @@ class AppSlotAdapter(
              * Google TV style: the icon takes most of the tile (~78%) and the name only appears
              * while the tile is focused, so the grid looks like a wall of icons.
              */
-            fun forSlot(slotPx: Int, density: Float): Sizing {
+            fun forSlot(slotPx: Int, density: Float, slotHeightPx: Int = slotPx): Sizing {
                 val scale = slotPx / (BASE_SLOT_DP * density)
                 return Sizing(
                     slotPx = slotPx,
                     iconPx = (slotPx * 0.78f).toInt(),
-                    iconTopPx = (slotPx * 0.04f).toInt(),
+                    iconTopPx = (slotHeightPx * 0.05f).toInt(),
                     textSp = (11f * scale).coerceIn(10f, 16f),
                     nameLines = 1,
                     plusPx = (slotPx * 56f / BASE_SLOT_DP).toInt(),
-                    plusTopPx = (slotPx * 20f / BASE_SLOT_DP).toInt(),
-                    plusTextSp = (30f * scale).coerceIn(22f, 44f)
+                    plusTopPx = (slotHeightPx * 0.15f).toInt(),
+                    plusTextSp = (30f * scale).coerceIn(22f, 44f),
+                    slotHeightPx = slotHeightPx
                 )
             }
         }
@@ -243,10 +246,12 @@ class AppSlotAdapter(
                     }
                 }
                 holder.itemView.setOnLongClickListener {
-                    val pos = holder.bindingAdapterPosition
-                    if (pos != RecyclerView.NO_POSITION) {
-                        onAppLongClick(pos)
-                    }
+                    holder.itemView.postDelayed({
+                        val pos = holder.bindingAdapterPosition
+                        if (holder.itemView.isPressed && pos != RecyclerView.NO_POSITION) {
+                            onAppLongClick(pos)
+                        }
+                    }, 200L)
                     true
                 }
             }
@@ -297,18 +302,33 @@ class AppSlotAdapter(
         val s = sizing
 
         val itemParams = holder.itemView.layoutParams
-        if (itemParams.width != s.slotPx || itemParams.height != s.slotPx) {
+        if (itemParams.width != s.slotPx || itemParams.height != s.slotHeightPx) {
             itemParams.width = s.slotPx
-            itemParams.height = s.slotPx
+            itemParams.height = s.slotHeightPx
             holder.itemView.layoutParams = itemParams
         }
 
+        val modernCard = iconShape == IconShapes.DEFAULT
+        val iconWidth: Int
+        val iconHeight: Int
+        if (modernCard) {
+            // Reference layout: a rounded horizontal card, with the original icon fitted inside.
+            iconWidth = (s.slotPx * 0.92f).toInt().coerceAtLeast(1)
+            iconHeight = minOf(
+                (s.slotHeightPx * 0.62f).toInt(),
+                (s.slotPx * 0.68f).toInt()
+            ).coerceAtLeast(1)
+        } else {
+            iconWidth = (minOf(s.slotPx, s.slotHeightPx) * 0.74f).toInt().coerceAtLeast(1)
+            iconHeight = iconWidth
+        }
+
         val iconParams = holder.appIcon.layoutParams as ConstraintLayout.LayoutParams
-        if (iconParams.width != s.iconPx || iconParams.height != s.iconPx ||
+        if (iconParams.width != iconWidth || iconParams.height != iconHeight ||
             iconParams.topMargin != s.iconTopPx
         ) {
-            iconParams.width = s.iconPx
-            iconParams.height = s.iconPx
+            iconParams.width = iconWidth
+            iconParams.height = iconHeight
             iconParams.topMargin = s.iconTopPx
             holder.appIcon.layoutParams = iconParams
         }
@@ -327,6 +347,19 @@ class AppSlotAdapter(
         holder.appName.maxLines = s.nameLines
         holder.addText.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.textSp)
         holder.plusButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.plusTextSp)
+
+        val cardPadding = if (modernCard) (minOf(iconWidth, iconHeight) * 0.07f).toInt() else 0
+        holder.appIcon.setPadding(cardPadding, cardPadding, cardPadding, cardPadding)
+        holder.appIcon.scaleType = ImageView.ScaleType.FIT_CENTER
+        holder.appIcon.background = if (modernCard) {
+            GradientDrawable().apply {
+                cornerRadius = minOf(iconWidth, iconHeight) * 0.16f
+                setColor(0x24FFFFFF)
+                setStroke(1, 0x30FFFFFF)
+            }
+        } else {
+            null
+        }
         IconShapes.applyTo(holder.appIcon, iconShape)
     }
 

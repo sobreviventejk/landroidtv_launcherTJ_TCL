@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_crop_zoom_control">Controle de zoom</string>
+    <string name="profile_crop_horizontal_control">Controle de posição horizontal</string>
+    <string name="profile_crop_vertical_control">Controle de posição vertical</string>
+    <string name="profile_crop_zoom_value">Zoom: %1$d%%</string>
+    <string name="profile_crop_horizontal_value">Posição horizontal: %1$d%%</string>
+    <string name="profile_crop_vertical_value">Posição vertical: %1$d%%</string>
+    <string name="profile_crop_preview">Pré-visualização circular. Arraste a foto para ajustar o enquadramento.</string>
+    <string name="profile_crop_empty">Nenhuma foto selecionada.</string>
+</resources>

@@ -9,7 +9,7 @@ package com.tvlauncher
  */
 object RandomMessages {
 
-    enum class Kind { MESSAGE, POEM, JOKE }
+    enum class Kind { MESSAGE, POEM, JOKE, MOTIVATION, MOVIE, COUPLE }
 
     /** Who the message talks to. */
     enum class Target { ALTERNATE, THIEL, JESSICA, BOTH }
@@ -18,8 +18,8 @@ object RandomMessages {
 
     const val PLACEHOLDER = "{nome}"
 
-    /** All three kinds enabled (default). */
-    const val ALL_KINDS_MASK: Int = 0b111
+    /** All six kinds enabled (default). */
+    const val ALL_KINDS_MASK: Int = 0b111111
 
     fun maskOf(kinds: Set<Kind>): Int = kinds.fold(0) { mask, kind -> mask or (1 shl kind.ordinal) }
 
@@ -63,7 +63,22 @@ object RandomMessages {
         Entry(Kind.JOKE, "Casal que assiste série junto discute menos. Entre um episódio e outro."),
         Entry(Kind.JOKE, "Meu superpoder é achar o controle remoto. Depois de procurar quarenta minutos."),
         Entry(Kind.JOKE, "O plano era dormir cedo. Aí começou o episódio um de novo."),
-        Entry(Kind.JOKE, "{nome}, hoje o jantar é surpresa. Provavelmente miojo.")
+        Entry(Kind.JOKE, "{nome}, hoje o jantar é surpresa. Provavelmente miojo."),
+        // ---- motivação ----
+        Entry(Kind.MOTIVATION, "{nome}, um passo de cada vez ainda é movimento para frente."),
+        Entry(Kind.MOTIVATION, "Hoje não precisa ser perfeito; só precisa ser vivido, {nome}."),
+        Entry(Kind.MOTIVATION, "{nome}, você já superou dias que pareciam impossíveis."),
+        Entry(Kind.MOTIVATION, "Descansar também faz parte de conseguir, {nome}."),
+        // ---- cinema e séries ----
+        Entry(Kind.MOVIE, "Sessão de hoje: uma história boa, luz baixa e vocês dois no sofá."),
+        Entry(Kind.MOVIE, "{nome}, pipoca pronta? O próximo filme pode virar o novo favorito."),
+        Entry(Kind.MOVIE, "Comédia, aventura ou romance? Hoje a escolha do gênero é de {nome}."),
+        Entry(Kind.MOVIE, "Mais um episódio? Só se for com {nome} do lado."),
+        // ---- relacionamento ----
+        Entry(Kind.COUPLE, "{nome}, a melhor companhia transforma qualquer noite em casa."),
+        Entry(Kind.COUPLE, "Um abraço em {nome} é o melhor episódio do dia."),
+        Entry(Kind.COUPLE, "Thiel e Jéssica: duas pessoas, um sofá e muitas histórias."),
+        Entry(Kind.COUPLE, "Que hoje sobre um tempinho para olhar nos olhos de {nome}.")
     )
 
     /** Name used in the message for a given [target] and rotation [slot]. */
@@ -82,10 +97,15 @@ object RandomMessages {
      * Message to show at [nowMs], or null when no kind is enabled.
      * The same text is repeated only after every enabled message has been shown.
      */
-    fun pick(kindsMask: Int, target: Target, nowMs: Long): String? {
+    fun pick(
+        kindsMask: Int,
+        target: Target,
+        nowMs: Long,
+        intervalMs: Long = GreetingText.ROTATE_MS
+    ): String? {
         val allowed = ALL.filter { isEnabled(kindsMask, it.kind) }
         if (allowed.isEmpty()) return null
-        val slot = positive(nowMs / GreetingText.ROTATE_MS)
+        val slot = positive(nowMs / intervalMs.coerceAtLeast(1L))
         val entry = allowed[(slot % allowed.size).toInt()]
         return entry.template.replace(PLACEHOLDER, nameFor(target, slot))
     }

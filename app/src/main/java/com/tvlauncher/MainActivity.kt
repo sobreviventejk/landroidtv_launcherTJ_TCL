@@ -154,7 +154,7 @@ class MainActivity : AppCompatActivity() {
 
     private val profilePicker =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            if (uri != null) saveProfilePhoto(uri)
+            if (uri != null) showProfilePhotoAdjustDialog(uri)
         }
 
     private val logExportPicker =
@@ -234,7 +234,7 @@ class MainActivity : AppCompatActivity() {
         buildTabs()
         applyProfilePhoto()
         val saved = layoutPrefs.getLastTab()
-        val first = if (saved != null && saved != TAB_NEW && !isLockedNow(saved) && tabViews.containsKey(saved)) saved else TAB_HOME
+        val first = if (saved != null && saved != TAB_NEW && tabViews.containsKey(saved)) saved else TAB_HOME
         selectTab(first, requestFocus = true)
         applyWallpaper()
         refreshWeather(force = false)
@@ -344,7 +344,8 @@ class MainActivity : AppCompatActivity() {
             onClick = { row -> onAllAppsRowClick(row) },
             onLongClick = { row -> showAllAppActions(row) },
             iconSizePx = { allAppsIconSizePx() },
-            rowHeightPx = { allAppsRowHeightPx() }
+            rowHeightPx = { allAppsRowHeightPx() },
+            iconShape = { layoutPrefs.getIconShape() }
         )
         allAppsList.layoutManager = GridLayoutManager(this, allAppsColumns())
         allAppsList.adapter = allAppsAdapter
@@ -386,7 +387,8 @@ class MainActivity : AppCompatActivity() {
     /** Shows the most used apps on the first tab only, and only when there are any. */
     private fun refreshTopApps() {
         val show = currentTab == TAB_HOME && layoutPrefs.isMostUsedEnabled()
-        val ids = if (show) UsageTracker.top(this, infoById.keys, TOP_APPS_LIMIT) else emptyList()
+        val validIds = infoById.keys.filterNot { HiddenApps.isHidden(this, it) }.toSet()
+        val ids = if (show) UsageTracker.top(this, validIds, TOP_APPS_LIMIT) else emptyList()
         val slots = ids.mapNotNull { id ->
             infoById[id]?.let { AppSlotAdapter.AppSlot(it, false) }
         }
@@ -398,8 +400,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildSizing(columns: Int, rows: Int = layoutPrefs.getRows()): AppSlotAdapter.Sizing {
         return AppSlotAdapter.Sizing.forSlot(
-            calculateSlotSizePx(columns, rows),
-            resources.displayMetrics.density
+            calculateSlotSizePx(columns),
+            resources.displayMetrics.density,
+            calculateSlotHeightPx(rows)
         )
     }
 
@@ -420,51 +423,32 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyGreeting() {
         val level = layoutPrefs.getGreetingSize()
-        if (level == LayoutPrefs.GREETING_HIDDEN) {
+        if (level == LayoutPrefs.GREETING_HIDDEN || !layoutPrefs.isAutoMessagesEnabled()) {
             greetingText.visibility = View.GONE
             lastGreeting = null
             return
         }
-        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        val now = System.currentTimeMillis()
-        val raw = layoutPrefs.getGreeting()
-        val title = GreetingText.title(raw, hour, layoutPrefs.isGreetingByTime())
-        val phrase = if (layoutPrefs.isAutoMessagesEnabled()) {
-            RandomMessages.pick(
-                layoutPrefs.getMessageKindsMask(),
-                layoutPrefs.getMessageTarget(),
-                now
-            )
-        } else {
-            GreetingText.pick(GreetingText.phrases(raw), now)
+        val phrase = RandomMessages.pick(
+            layoutPrefs.getMessageKindsMask(),
+            layoutPrefs.getMessageTarget(),
+            System.currentTimeMillis(),
+            layoutPrefs.getMessageIntervalMs()
+        )
+        if (phrase.isNullOrBlank()) {
+            greetingText.visibility = View.GONE
+            lastGreeting = null
+            return
         }
-        val text = if (phrase == null) title else title + "\n" + phrase
-        val signature = "$level|$text"
+        val signature = "$level|$phrase"
         if (signature == lastGreeting && greetingText.visibility == View.VISIBLE) return
         lastGreeting = signature
-
         greetingText.visibility = View.VISIBLE
-        val bodySp = LayoutPrefs.greetingBodySp(level)
-        val titleSp = LayoutPrefs.greetingTitleSp(level)
-        val metrics = resources.displayMetrics
-        val titlePx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, titleSp, metrics).toInt()
-
-        val firstBreak = text.indexOf('\n')
-        val titleEnd = if (firstBreak < 0) text.length else firstBreak
-
-        val styled = SpannableStringBuilder(text)
-        if (titleEnd > 0) {
-            styled.setSpan(AbsoluteSizeSpan(titlePx, false), 0, titleEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            styled.setSpan(StyleSpan(Typeface.BOLD), 0, titleEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            styled.setSpan(
-                ForegroundColorSpan(Palette.accent(layoutPrefs.getPalette())),
-                0,
-                titleEnd,
-                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
-        }
-        greetingText.setTextSize(TypedValue.COMPLEX_UNIT_SP, bodySp)
-        greetingText.text = styled
+        greetingText.setTextSize(
+            TypedValue.COMPLEX_UNIT_SP,
+            LayoutPrefs.greetingBodySp(level) + 2f
+        )
+        greetingText.setTextColor(Palette.accent(layoutPrefs.getPalette()))
+        greetingText.text = phrase
     }
 
     /** Applies the chosen palette to the tiles, tabs, greeting and aurora glow. */
@@ -489,6 +473,9 @@ class MainActivity : AppCompatActivity() {
         appSlotAdapter.iconShape = shape
         if (::topAdapter.isInitialized) {
             topAdapter.iconShape = shape
+        }
+        if (::allAppsAdapter.isInitialized) {
+            allAppsAdapter.notifyDataSetChanged()
         }
     }
 
@@ -666,13 +653,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Name shown on a category tab; protected categories get a lock. */
-    private fun tabLabel(category: Category): String {
-        return if (pinPrefs.isLocked(category.id)) "\uD83D\uDD12 " + category.name else category.name
-    }
-
-    private fun isLockedNow(key: String): Boolean {
-        return pinPrefs.isLocked(key) && key !in unlockedTabs
-    }
+    private fun tabLabel(category: Category): String = category.name
 
     private fun addTab(key: String, label: String) {
         val density = resources.displayMetrics.density
@@ -693,7 +674,11 @@ class MainActivity : AppCompatActivity() {
         }
         tab.setOnClickListener { onTabClicked(key) }
         tab.setOnLongClickListener {
-            layoutPrefs.getCategories().firstOrNull { it.id == key }?.let { showCategoryMenu(it) }
+            // Android detects its standard long press first; require the extra 200 ms so the
+            // adjustment only opens after at least 700 ms with the button still held.
+            mainHandler.postDelayed({
+                if (tab.isPressed) openTabAdjustments(key)
+            }, HOME_LONG_PRESS_MS - 500L)
             true
         }
         // Like Google TV: moving the focus over a tab already shows its apps.
@@ -704,6 +689,19 @@ class MainActivity : AppCompatActivity() {
         }
         tabViews[key] = tab
         tabContainer.addView(tab)
+    }
+
+    private fun openTabAdjustments(key: String) {
+        if (key == TAB_ALL) {
+            showIconSizeDialog(TAB_ALL, getString(R.string.tab_all_apps))
+            return
+        }
+        val category = layoutPrefs.getCategories().firstOrNull { it.id == key }
+        if (category != null) {
+            showCategoryMenu(category)
+        } else {
+            showIconSizeDialog(key, tabDisplayName(key))
+        }
     }
 
     private fun updateTabStyles() {
@@ -722,10 +720,6 @@ class MainActivity : AppCompatActivity() {
     private fun onTabClicked(key: String) {
         when {
             key == TAB_NEW -> promptNewCategory()
-            isLockedNow(key) -> askPin(R.string.pin_enter_title) {
-                unlockedTabs.add(key)
-                selectTab(key, requestFocus = true)
-            }
             key != currentTab -> selectTab(key, requestFocus = true)
             else -> {
                 val category = layoutPrefs.getCategories().firstOrNull { it.id == key }
@@ -814,12 +808,6 @@ class MainActivity : AppCompatActivity() {
 
     /** Shows the apps of the current tab followed by the "+" tile. */
     private fun submitSlots(focusKey: String?, requestFocus: Boolean) {
-        if (isLockedNow(currentTab)) {
-            appSlotAdapter.submitList(emptyList())
-            emptyHint.text = getString(R.string.category_locked_hint)
-            emptyHint.visibility = View.VISIBLE
-            return
-        }
         emptyHint.visibility = View.GONE
         val categories = layoutPrefs.getCategories()
         val order = appManager.getSelectedApps().filter { infoById.containsKey(it) }
@@ -832,7 +820,9 @@ class MainActivity : AppCompatActivity() {
 
         val slots = mutableListOf<AppSlotAdapter.AppSlot>()
         ids.forEach { id ->
-            infoById[id]?.let { slots.add(AppSlotAdapter.AppSlot(it, false)) }
+            if (!HiddenApps.isHidden(this, id)) {
+                infoById[id]?.let { slots.add(AppSlotAdapter.AppSlot(it, false)) }
+            }
         }
         slots.add(AppSlotAdapter.AppSlot(null, true))
 
@@ -880,11 +870,12 @@ class MainActivity : AppCompatActivity() {
         if (!app.isShortcut) {
             options.add(getString(R.string.app_menu_info))
             actions.add { openAppDetails(app.packageName) }
-            options.add(getString(R.string.app_menu_android_settings))
-            actions.add { openAppAndroidSettings(app.packageName) }
             options.add(getString(R.string.app_menu_permissions))
             actions.add { openAppPermissions(app.packageName) }
         }
+
+        options.add(getString(R.string.app_menu_hide))
+        actions.add { hideApp(appId, app.getDisplayName()) }
 
         options.add(getString(R.string.remove))
         actions.add { confirmRemoveApp(app, position) }
@@ -1070,17 +1061,6 @@ class MainActivity : AppCompatActivity() {
             options.add(getString(R.string.category_move_down))
             actions.add { moveCategory(category.id, 1) }
         }
-        if (pinPrefs.isLocked(category.id)) {
-            options.add(getString(R.string.category_unlock))
-            actions.add {
-                pinPrefs.setLocked(category.id, false)
-                Toast.makeText(this, R.string.category_unlocked_toast, Toast.LENGTH_SHORT).show()
-                reopenTab(category.id)
-            }
-        } else {
-            options.add(getString(R.string.category_lock))
-            actions.add { lockCategory(category) }
-        }
         options.add(getString(R.string.category_delete))
         actions.add { confirmDeleteCategory(category) }
 
@@ -1111,16 +1091,8 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.category_delete_title)
             .setMessage(getString(R.string.category_delete_message, category.name))
             .setPositiveButton(R.string.delete) { _, _ ->
-                val doDelete = {
-                    pinPrefs.setLocked(category.id, false)
-                    layoutPrefs.deleteCategory(category.id)
-                    reopenTab(TAB_HOME)
-                }
-                if (pinPrefs.isLocked(category.id)) {
-                    askPin(R.string.pin_enter_title) { doDelete() }
-                } else {
-                    doDelete()
-                }
+                layoutPrefs.deleteCategory(category.id)
+                reopenTab(TAB_HOME)
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -1132,22 +1104,19 @@ class MainActivity : AppCompatActivity() {
         appManager.loadInstalledAppsAsync(false) { apps ->
             if (isFinishing || isDestroyed) return@loadInstalledAppsAsync
             val added = appManager.getSelectedApps().toSet()
-            val names = layoutPrefs.getCategories().associate { it.id to it.name }
-            val assignments = layoutPrefs.getAssignments()
-            val homeLabel = getString(R.string.tab_home)
             val notAdded = getString(R.string.all_apps_not_added)
 
             val rows = apps
+                .filter { app ->
+                    val id = AppIdentifier.encode(app)
+                    // All Apps is the inbox for new/unassigned apps. Categorized apps live only
+                    // in their category and return here automatically when that shortcut is removed.
+                    id !in added && !HiddenApps.isHidden(this, id)
+                }
                 .sortedBy { it.getDisplayName().lowercase() }
                 .map { app ->
                     val id = AppIdentifier.encode(app)
-                    val isAdded = id in added
-                    val status = if (isAdded) {
-                        getString(R.string.all_apps_added_in, assignments[id]?.let { names[it] } ?: homeLabel)
-                    } else {
-                        notAdded
-                    }
-                    AllAppsAdapter.Row(app, id, isAdded, status)
+                    AllAppsAdapter.Row(app, id, false, notAdded)
                 }
 
             allAppsAdapter.submitList(rows) {
@@ -1184,10 +1153,12 @@ class MainActivity : AppCompatActivity() {
         actions.add { launchApp(row.app) }
         options.add(getString(R.string.all_apps_uninstall))
         actions.add { uninstallApp(row.app) }
-        options.add(getString(R.string.app_menu_android_settings))
-        actions.add { openAppAndroidSettings(row.app.packageName) }
+        options.add(getString(R.string.app_menu_info))
+        actions.add { openAppDetails(row.app.packageName) }
         options.add(getString(R.string.app_menu_permissions))
         actions.add { openAppPermissions(row.app.packageName) }
+        options.add(getString(R.string.app_menu_hide))
+        actions.add { hideApp(row.id, row.app.getDisplayName()) }
 
         AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
             .setTitle(row.app.getDisplayName())
@@ -1195,6 +1166,44 @@ class MainActivity : AppCompatActivity() {
                 actions.getOrNull(which)?.invoke()
             }
             .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun hideApp(appId: String, label: String) {
+        HiddenApps.setHidden(this, appId, true)
+        CrashLog.log(this, "App ocultado: $label")
+        Toast.makeText(this, getString(R.string.app_hidden_toast, label), Toast.LENGTH_SHORT).show()
+        refreshTopApps()
+        refreshContent(lastFocusedKey, requestFocus = false)
+    }
+
+    /** Advanced settings: restore apps hidden by the long-press menu. */
+    private fun showHiddenAppsDialog() {
+        val hidden = HiddenApps.ids(this)
+        val apps = appManager.getInstalledApps()
+            .filter { AppIdentifier.encode(it) in hidden }
+            .sortedBy { it.getDisplayName().lowercase() }
+        if (apps.isEmpty()) {
+            Toast.makeText(this, R.string.hidden_apps_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.hidden_apps_title)
+            .setItems(apps.map { it.getDisplayName() }.toTypedArray()) { _, which ->
+                val app = apps[which]
+                HiddenApps.setHidden(this, AppIdentifier.encode(app), false)
+                Toast.makeText(
+                    this,
+                    getString(R.string.hidden_app_restored, app.getDisplayName()),
+                    Toast.LENGTH_SHORT
+                ).show()
+                refreshContent(lastFocusedKey, requestFocus = false)
+            }
+            .setNeutralButton(R.string.hidden_apps_restore_all) { _, _ ->
+                HiddenApps.clear(this)
+                refreshContent(lastFocusedKey, requestFocus = false)
+            }
+            .setNegativeButton(R.string.close, null)
             .show()
     }
 
@@ -1503,14 +1512,6 @@ class MainActivity : AppCompatActivity() {
         actions.add { showIconShapeDialog() }
         options.add(getString(R.string.customize_greeting_size))
         actions.add { showGreetingSizeDialog() }
-        options.add(getString(R.string.customize_greeting_text))
-        actions.add { showGreetingTextDialog() }
-        options.add(stateLabel(R.string.customize_greeting_by_time, layoutPrefs.isGreetingByTime()))
-        actions.add {
-            layoutPrefs.setGreetingByTime(!layoutPrefs.isGreetingByTime())
-            lastGreeting = null
-            applyGreeting()
-        }
         options.add(getString(R.string.customize_palette))
         actions.add { showPaletteDialog() }
         options.add(stateLabel(R.string.customize_aurora, layoutPrefs.isAuroraEnabled()))
@@ -1524,6 +1525,8 @@ class MainActivity : AppCompatActivity() {
             lastGreeting = null
             applyGreeting()
         }
+        options.add(getString(R.string.customize_message_interval))
+        actions.add { showMessageIntervalDialog() }
         options.add(getString(R.string.customize_message_kinds))
         actions.add { showMessageKindsDialog() }
         options.add(getString(R.string.customize_message_target))
@@ -1652,8 +1655,7 @@ class MainActivity : AppCompatActivity() {
         }
         val columnsBar = SeekBar(this).apply {
             max = LayoutPrefs.MAX_COLUMNS - LayoutPrefs.MIN_COLUMNS
-            progress = (LayoutPrefs.MAX_COLUMNS - layoutPrefs.getColumns())
-                .coerceIn(0, max)
+            progress = (layoutPrefs.getColumns() - LayoutPrefs.MIN_COLUMNS).coerceIn(0, max)
         }
         val rowsText = TextView(this).apply {
             textSize = 15f
@@ -1664,7 +1666,7 @@ class MainActivity : AppCompatActivity() {
             max = LayoutPrefs.MAX_ROWS - LayoutPrefs.MIN_ROWS
             progress = (layoutPrefs.getRows() - LayoutPrefs.MIN_ROWS).coerceIn(0, max)
         }
-        fun columns(): Int = LayoutPrefs.MAX_COLUMNS - columnsBar.progress
+        fun columns(): Int = LayoutPrefs.MIN_COLUMNS + columnsBar.progress
         fun rows(): Int = LayoutPrefs.MIN_ROWS + rowsBar.progress
         fun updateLabels() {
             columnsText.text = getString(R.string.grid_columns_value, columns())
@@ -1760,6 +1762,30 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showMessageIntervalDialog() {
+        val minutes = longArrayOf(1, 5, 10, 30, 60, 360, 720, 1440)
+        val labels = minutes.map { value ->
+            if (value < 60) {
+                getString(R.string.message_interval_minutes, value)
+            } else {
+                getString(R.string.message_interval_hours, value / 60)
+            }
+        }.toTypedArray()
+        val currentMs = layoutPrefs.getMessageIntervalMs()
+        val current = minutes.indexOfFirst { it * 60_000L == currentMs }
+            .let { if (it < 0) 2 else it }
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_message_interval)
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                dialog.dismiss()
+                layoutPrefs.setMessageIntervalMs(minutes[which] * 60_000L)
+                lastGreeting = null
+                applyGreeting()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
     private fun showMessageKindsDialog() {
         val kinds = RandomMessages.Kind.values()
         val labels = kinds.map { kindLabel(it) }.toTypedArray()
@@ -1810,6 +1836,9 @@ class MainActivity : AppCompatActivity() {
         RandomMessages.Kind.MESSAGE -> getString(R.string.messages_kind_message)
         RandomMessages.Kind.POEM -> getString(R.string.messages_kind_poem)
         RandomMessages.Kind.JOKE -> getString(R.string.messages_kind_joke)
+        RandomMessages.Kind.MOTIVATION -> getString(R.string.messages_kind_motivation)
+        RandomMessages.Kind.MOVIE -> getString(R.string.messages_kind_movie)
+        RandomMessages.Kind.COUPLE -> getString(R.string.messages_kind_couple)
     }
 
     private fun targetLabel(target: RandomMessages.Target): String = when (target) {
@@ -2239,37 +2268,32 @@ class MainActivity : AppCompatActivity() {
         } ?: BuildConfig.VERSION_NAME
     }
 
-    /**
-     * Tile size that fits [columns] x [rows] on the current screen. Both the width and the
-     * height are taken into account, so the same setting looks right on 1080p, 4K and in
-     * portrait; the text always scales with the tile.
-     */
-    private fun calculateSlotSizePx(columns: Int, rows: Int): Int {
+    /** Width follows the column count, so changing the per-tab icon size always has an effect. */
+    private fun calculateSlotSizePx(columns: Int): Int {
         val displayMetrics = resources.displayMetrics
         val density = displayMetrics.density
-
         val hMargin = resources.getDimensionPixelSize(R.dimen.screen_margin_h)
-        val vMargin = resources.getDimensionPixelSize(R.dimen.screen_margin_v)
         val gridPadding = resources.getDimensionPixelSize(R.dimen.grid_padding)
         val itemMargin = resources.getDimensionPixelSize(R.dimen.grid_item_margin)
-
-        val totalItemMargins = itemMargin * 2 * columns
         val availableWidth = displayMetrics.widthPixels - hMargin * 2 - gridPadding * 2 -
-            totalItemMargins
-        val byWidth = availableWidth / columns
+            itemMargin * 2 * columns
+        val byWidth = availableWidth / columns.coerceAtLeast(1)
+        return byWidth.coerceIn((34 * density).toInt(), (420 * density).toInt())
+    }
 
-        // Approximate height used by the header, greeting, most-used row and paddings.
+    /** Height follows the global row arrangement independently of the icon width. */
+    private fun calculateSlotHeightPx(rows: Int): Int {
+        val metrics = resources.displayMetrics
+        val density = metrics.density
+        val vMargin = resources.getDimensionPixelSize(R.dimen.screen_margin_v)
+        val gridPadding = resources.getDimensionPixelSize(R.dimen.grid_padding)
         val header = (72 * density).toInt()
-        val greeting = (52 * density).toInt()
+        val greeting = if (layoutPrefs.isAutoMessagesEnabled()) (46 * density).toInt() else 0
         val mostUsed = if (layoutPrefs.isMostUsedEnabled()) (92 * density).toInt() else 0
-        val availableHeight = displayMetrics.heightPixels - vMargin * 2 - header - greeting -
+        val availableHeight = metrics.heightPixels - vMargin * 2 - header - greeting -
             mostUsed - gridPadding * 2
-        val byHeight = availableHeight / rows.coerceAtLeast(1)
-
-        val size = minOf(byWidth, byHeight)
-        val minSize = (34 * density).toInt()
-        val maxSize = (420 * density).toInt()
-        return size.coerceIn(minSize, maxSize)
+        return (availableHeight / rows.coerceAtLeast(1))
+            .coerceIn((34 * density).toInt(), (360 * density).toInt())
     }
 
     // ---- Search ----
@@ -2281,6 +2305,10 @@ class MainActivity : AppCompatActivity() {
         val results = dialogView.findViewById<RecyclerView>(R.id.searchResults)
         val summary = dialogView.findViewById<TextView>(R.id.searchSummary)
         val empty = dialogView.findViewById<TextView>(R.id.searchEmpty)
+        val external = dialogView.findViewById<LinearLayout>(R.id.searchExternalContainer)
+        val internet = dialogView.findViewById<TextView>(R.id.searchInternetButton)
+        val youtube = dialogView.findViewById<TextView>(R.id.searchYoutubeButton)
+        val playStore = dialogView.findViewById<TextView>(R.id.searchPlayStoreButton)
         val apps = appManager.getInstalledApps()
         val iconPx = (32 * resources.displayMetrics.density).toInt()
         var dialog: AlertDialog? = null
@@ -2299,20 +2327,48 @@ class MainActivity : AppCompatActivity() {
         results.adapter = adapter
 
         fun update(query: String) {
-            val found = SearchAdapter.filter(apps, query)
-            adapter.submitList(found)
-            empty.visibility = if (found.isEmpty()) View.VISIBLE else View.GONE
-            summary.text = if (query.isBlank()) {
-                getString(R.string.search_suggestions)
-            } else {
-                getString(R.string.search_results_count, found.size)
+            val clean = query.trim()
+            if (clean.isEmpty()) {
+                adapter.submitList(emptyList())
+                external.visibility = View.GONE
+                results.visibility = View.GONE
+                summary.visibility = View.GONE
+                empty.visibility = View.GONE
+                return
             }
+            external.visibility = View.VISIBLE
+            internet.text = getString(R.string.search_internet, clean)
+            youtube.text = getString(R.string.search_youtube, clean)
+            playStore.text = getString(R.string.search_play_store, clean)
+            val found = SearchAdapter.filter(apps, clean)
+            adapter.submitList(found)
+            summary.visibility = View.VISIBLE
+            summary.text = getString(R.string.search_results_count, found.size)
+            results.visibility = if (found.isEmpty()) View.GONE else View.VISIBLE
+            empty.visibility = if (found.isEmpty()) View.VISIBLE else View.GONE
+        }
+
+        internet.setOnClickListener {
+            openExternalSearch(edit.text.toString(), "internet")
+            dialog?.dismiss()
+        }
+        youtube.setOnClickListener {
+            openExternalSearch(edit.text.toString(), "youtube")
+            dialog?.dismiss()
+        }
+        playStore.setOnClickListener {
+            openExternalSearch(edit.text.toString(), "play")
+            dialog?.dismiss()
         }
 
         edit.doAfterTextChanged { update(it?.toString().orEmpty()) }
         update("")
         edit.setOnEditorActionListener { _, _, _ ->
-            results.getChildAt(0)?.requestFocus()
+            if (external.visibility == View.VISIBLE) {
+                internet.requestFocus()
+            } else {
+                results.getChildAt(0)?.requestFocus()
+            }
             true
         }
 
@@ -2327,11 +2383,40 @@ class MainActivity : AppCompatActivity() {
         edit.requestFocus()
     }
 
+    private fun openExternalSearch(rawQuery: String, destination: String) {
+        val query = rawQuery.trim()
+        if (query.isEmpty()) return
+        val encoded = Uri.encode(query)
+        val url = when (destination) {
+            "youtube" -> "https://www.youtube.com/results?search_query=$encoded"
+            "play" -> "https://play.google.com/store/search?q=$encoded&c=apps"
+            else -> "https://www.google.com/search?q=$encoded"
+        }
+        val preferred = if (destination == "youtube") {
+            ContentBannerManager.playerPackage(this)
+        } else {
+            null
+        }
+        TvHomeOverrideService.pauseOverrideFor(5000)
+        try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            if (!preferred.isNullOrBlank()) intent.setPackage(preferred)
+            startActivity(intent)
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+            } catch (_: Exception) {
+                Toast.makeText(this, R.string.search_external_failed, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     // ---- Profile avatar: photo + system dashboard ----
 
     private fun profilePhotoFile(): File = File(filesDir, "profile_photo.jpg")
 
     private fun applyProfilePhoto() {
+        IconShapes.applyTo(profileButton, IconShapes.CIRCLE)
         val file = profilePhotoFile()
         val bitmap = if (file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
         if (bitmap != null) {
@@ -2346,46 +2431,68 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Long press on the avatar: pick a photo and keep a small copy inside the launcher. */
-    private fun saveProfilePhoto(uri: Uri) {
-        val saved = try {
+    /** Long press on the avatar: choose the visible area, then save a square/circular avatar. */
+    private fun showProfilePhotoAdjustDialog(uri: Uri) {
+        val decoded = try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return
-            var sample = 1
-            while (bounds.outWidth / sample > 1024 || bounds.outHeight / sample > 1024) {
-                sample *= 2
+            contentResolver.openInputStream(uri)?.use {
+                BitmapFactory.decodeStream(it, null, bounds)
             }
-            val options = BitmapFactory.Options().apply { inSampleSize = sample }
-            val decoded = contentResolver.openInputStream(uri)?.use {
-                BitmapFactory.decodeStream(it, null, options)
-            } ?: return
-            val side = minOf(decoded.width, decoded.height)
-            val cropped = Bitmap.createBitmap(
-                decoded,
-                (decoded.width - side) / 2,
-                (decoded.height - side) / 2,
-                side,
-                side
-            )
-            val output = Bitmap.createScaledBitmap(cropped, 512, 512, true)
-            FileOutputStream(profilePhotoFile()).use { out ->
-                output.compress(Bitmap.CompressFormat.JPEG, 90, out)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) null else {
+                var sample = 1
+                while (bounds.outWidth / sample > 2048 || bounds.outHeight / sample > 2048) {
+                    sample *= 2
+                }
+                val options = BitmapFactory.Options().apply { inSampleSize = sample }
+                contentResolver.openInputStream(uri)?.use {
+                    BitmapFactory.decodeStream(it, null, options)
+                }
             }
-            if (output !== cropped) output.recycle()
-            if (cropped !== decoded) cropped.recycle()
-            decoded.recycle()
-            true
         } catch (_: Exception) {
-            false
+            null
         }
-        if (saved) {
-            applyProfilePhoto()
-            CrashLog.log(this, "Foto de perfil atualizada")
-            Toast.makeText(this, R.string.profile_photo_saved, Toast.LENGTH_SHORT).show()
-        } else {
+        if (decoded == null) {
             Toast.makeText(this, R.string.profile_photo_failed, Toast.LENGTH_SHORT).show()
+            return
         }
+
+        val cropView = ProfileCropView(this)
+        cropView.setBitmap(decoded)
+        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.profile_adjust_title)
+            .setView(cropView)
+            .setPositiveButton(R.string.done, null)
+            .setNegativeButton(R.string.cancel) { _, _ -> decoded.recycle() }
+            .create()
+        styleDialog(dialog, widthFraction = 0.5f, maxWidthDp = 620, heightFraction = 0.9f)
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val output = try {
+                    cropView.createCrop512()
+                } catch (_: Exception) {
+                    null
+                }
+                val saved = output != null && try {
+                    FileOutputStream(profilePhotoFile()).use { out ->
+                        output.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                    }
+                    true
+                } catch (_: Exception) {
+                    false
+                }
+                output?.recycle()
+                decoded.recycle()
+                dialog.dismiss()
+                if (saved) {
+                    applyProfilePhoto()
+                    CrashLog.log(this, "Foto de perfil ajustada e atualizada")
+                    Toast.makeText(this, R.string.profile_photo_saved, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, R.string.profile_photo_failed, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        dialog.show()
     }
 
     /**
@@ -2575,10 +2682,8 @@ class MainActivity : AppCompatActivity() {
                 TvHomeOverrideService.setSuppressStockLauncherEnabled(this, false)
             }
         }
-        if (pinPrefs.hasPin()) {
-            options.add(getString(R.string.pin_change))
-            actions.add { changePin() }
-        }
+        options.add(getString(R.string.hidden_apps_title))
+        actions.add { showHiddenAppsDialog() }
 
         AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
             .setTitle(R.string.advanced_title)
@@ -2891,8 +2996,6 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         super.onStop()
-        // Protected categories ask for the PIN again after the launcher has been left.
-        unlockedTabs.clear()
         appManager.invalidateAppListCache()
     }
 

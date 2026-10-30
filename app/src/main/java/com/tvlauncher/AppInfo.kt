@@ -1,15 +1,9 @@
 package com.tvlauncher
 
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.BitmapShader
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.Shader
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 
+/** An installed app (or an app shortcut) shown by the launcher. */
 data class AppInfo(
     val packageName: String,
     val appName: String,
@@ -26,6 +20,12 @@ data class AppInfo(
         appManager = manager
     }
 
+    /**
+     * Returns the original icon drawable. Resizing is left to the ImageView (FIT_CENTER), so a
+     * rectangular icon is never stretched into a square and no extra bitmap reduces its quality.
+     * [iconSizePx] remains in the API because callers also use it to size the destination view.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun getIcon(packageManager: PackageManager, iconSizePx: Int = 0): Drawable {
         if (icon == null) {
             val cacheKey = if (isShortcut) {
@@ -38,12 +38,7 @@ data class AppInfo(
                 icon = cachedIcon
             } else {
                 try {
-                    val loaded = shortcutIcon ?: packageManager.getApplicationIcon(packageName)
-                    icon = if (iconSizePx > 0) {
-                        renderRoundedIcon(loaded, iconSizePx)
-                    } else {
-                        loaded
-                    }
+                    icon = shortcutIcon ?: packageManager.getApplicationIcon(packageName)
                     appManager?.cacheIcon(cacheKey, icon!!)
                 } catch (_: Exception) {
                     icon = packageManager.defaultActivityIcon
@@ -59,34 +54,9 @@ data class AppInfo(
 
     fun getDisplayName(): String {
         return if (isShortcut && !shortcutLabel.isNullOrEmpty()) {
-            shortcutLabel
+            shortcutLabel!!
         } else {
             appName
         }
-    }
-
-    private fun renderRoundedIcon(source: Drawable, sizePx: Int): Drawable {
-        if (sizePx <= 0) return source
-
-        // Use ARGB_8888 for clean alpha blending on rounded corners, or fallback
-        val rawBitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-        val rawCanvas = Canvas(rawBitmap)
-        source.setBounds(0, 0, sizePx, sizePx)
-        source.draw(rawCanvas)
-
-        val outputBitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
-        val outputCanvas = Canvas(outputBitmap)
-
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            shader = BitmapShader(rawBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
-        }
-
-        val rect = RectF(0f, 0f, sizePx.toFloat(), sizePx.toFloat())
-        // Modern 22% squircle-like corner radius for TV app icons
-        val cornerRadius = sizePx * 0.22f
-        outputCanvas.drawRoundRect(rect, cornerRadius, cornerRadius, paint)
-
-        rawBitmap.recycle()
-        return BitmapDrawable(null, outputBitmap)
     }
 }

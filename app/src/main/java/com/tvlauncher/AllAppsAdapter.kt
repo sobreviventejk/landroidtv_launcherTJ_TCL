@@ -1,5 +1,6 @@
 package com.tvlauncher
 
+import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
@@ -19,7 +20,8 @@ class AllAppsAdapter(
     private val onLongClick: (Row) -> Unit,
     private val iconSizePx: () -> Int,
     /** Height of one row: the "All apps" tab has its own icon size, chosen with a bar. */
-    private val rowHeightPx: () -> Int = { 0 }
+    private val rowHeightPx: () -> Int = { 0 },
+    private val iconShape: () -> Int = { IconShapes.DEFAULT }
 ) : ListAdapter<AllAppsAdapter.Row, AllAppsAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     /**
@@ -72,6 +74,20 @@ class AllAppsAdapter(
             width = iconPx
             this.height = iconPx
         }
+        val shape = iconShape()
+        val padding = if (shape == IconShapes.DEFAULT) (iconPx * 0.06f).toInt() else 0
+        holder.icon.setPadding(padding, padding, padding, padding)
+        holder.icon.scaleType = ImageView.ScaleType.FIT_CENTER
+        holder.icon.background = if (shape == IconShapes.DEFAULT) {
+            GradientDrawable().apply {
+                cornerRadius = iconPx * 0.16f
+                setColor(0x24FFFFFF)
+                setStroke(1, 0x30FFFFFF)
+            }
+        } else {
+            null
+        }
+        IconShapes.applyTo(holder.icon, shape)
         holder.icon.setImageDrawable(
             row.app.getIcon(holder.itemView.context.packageManager, iconPx)
         )
@@ -82,10 +98,12 @@ class AllAppsAdapter(
             }
         }
         holder.itemView.setOnLongClickListener {
-            val pos = holder.bindingAdapterPosition
-            if (pos != RecyclerView.NO_POSITION) {
-                onLongClick(getItem(pos))
-            }
+            holder.itemView.postDelayed({
+                val pos = holder.bindingAdapterPosition
+                if (holder.itemView.isPressed && pos != RecyclerView.NO_POSITION) {
+                    onLongClick(getItem(pos))
+                }
+            }, 200L)
             true
         }
     }

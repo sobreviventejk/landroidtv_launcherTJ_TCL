@@ -15,8 +15,8 @@ import java.util.concurrent.Executors
  * Daily weather for the home screen, using the free Open-Meteo API (no key needed).
  *
  * The default location is Belém - PA (Terra Firme). The last answer is cached as raw JSON so the
- * header still shows something when the TV is offline; the cache is refreshed every
- * [CACHE_MS] minutes.
+ * header still shows something when the TV is offline. Automatic loads reuse the cache for
+ * 12 hours (at most two successful downloads per day); manual loads can always bypass it.
  */
 object Weather {
 
@@ -27,7 +27,7 @@ object Weather {
     private const val PREFS_NAME = "weather_cache"
     private const val KEY_JSON = "forecast_json"
     private const val KEY_TIME = "forecast_time"
-    private const val CACHE_MS = 30 * 60 * 1000L
+    private const val CACHE_MS = 12L * 60 * 60 * 1000
     private const val TIMEOUT_MS = 10_000
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -55,7 +55,7 @@ object Weather {
      * Loads the forecast: cached when it is fresh, otherwise from the network.
      * [onResult] always runs on the main thread; null means "nothing available at all".
      */
-    fun load(context: Context, force: Boolean, onResult: (Forecast?) -> Unit) {
+    fun load(context: Context, force: Boolean = false, onResult: (Forecast?) -> Unit) {
         val appContext = context.applicationContext
         val prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val cached = prefs.getString(KEY_JSON, null)

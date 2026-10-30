@@ -211,6 +211,18 @@ class LayoutPrefs(context: Context) {
         prefs.edit().putBoolean(KEY_AUTO_MESSAGES, enabled).apply()
     }
 
+    /** Rotation interval of the automatic phrases, chosen by the user. */
+    fun getMessageIntervalMs(): Long =
+        prefs.getLong(KEY_MESSAGE_INTERVAL_MS, GreetingText.ROTATE_MS)
+            .coerceIn(MIN_MESSAGE_INTERVAL_MS, MAX_MESSAGE_INTERVAL_MS)
+
+    fun setMessageIntervalMs(intervalMs: Long) {
+        prefs.edit().putLong(
+            KEY_MESSAGE_INTERVAL_MS,
+            intervalMs.coerceIn(MIN_MESSAGE_INTERVAL_MS, MAX_MESSAGE_INTERVAL_MS)
+        ).apply()
+    }
+
     /** Bit mask of the enabled [RandomMessages.Kind] values. Never zero. */
     fun getMessageKindsMask(): Int {
         val saved = prefs.getInt(KEY_MESSAGE_KINDS, RandomMessages.ALL_KINDS_MASK)
@@ -276,6 +288,8 @@ class LayoutPrefs(context: Context) {
         const val GREETING_MAX = 5
         const val DEFAULT_GREETING_SIZE = 2
         const val MAX_GREETING_LENGTH = 200
+        const val MIN_MESSAGE_INTERVAL_MS = 60_000L
+        const val MAX_MESSAGE_INTERVAL_MS = 24 * 60 * 60 * 1000L
 
         /** Text size (sp) of the greeting title for a size [level]. */
         fun greetingTitleSp(level: Int): Float = when (level.coerceIn(GREETING_HIDDEN, GREETING_MAX)) {
@@ -312,6 +326,7 @@ class LayoutPrefs(context: Context) {
         private const val KEY_AURORA = "aurora_enabled"
         private const val KEY_ICON_SHAPE = "icon_shape"
         private const val KEY_AUTO_MESSAGES = "auto_messages_enabled"
+        private const val KEY_MESSAGE_INTERVAL_MS = "message_interval_ms"
         private const val KEY_MESSAGE_KINDS = "message_kinds"
         private const val KEY_MESSAGE_TARGET = "message_target"
         private const val KEY_WEATHER = "weather_enabled"

@@ -38,6 +38,36 @@ object Palette {
             "Gelo",
             0xFF7DD3FC.toInt(),
             intArrayOf(0xFF0EA5E9.toInt(), 0xFF6366F1.toInt(), 0xFFE0F2FE.toInt())
+        ),
+        Entry(
+            "Violeta",
+            0xFFC084FC.toInt(),
+            intArrayOf(0xFF9333EA.toInt(), 0xFF6D28D9.toInt(), 0xFFF0ABFC.toInt())
+        ),
+        Entry(
+            "Turquesa",
+            0xFF2DD4BF.toInt(),
+            intArrayOf(0xFF0D9488.toInt(), 0xFF06B6D4.toInt(), 0xFF99F6E4.toInt())
+        ),
+        Entry(
+            "Coral",
+            0xFFFB7185.toInt(),
+            intArrayOf(0xFFF43F5E.toInt(), 0xFFFB923C.toInt(), 0xFFFECDD3.toInt())
+        ),
+        Entry(
+            "Dourado",
+            0xFFFDE047.toInt(),
+            intArrayOf(0xFFEAB308.toInt(), 0xFFF97316.toInt(), 0xFFFEF08A.toInt())
+        ),
+        Entry(
+            "Azul noite",
+            0xFF60A5FA.toInt(),
+            intArrayOf(0xFF1D4ED8.toInt(), 0xFF3730A3.toInt(), 0xFF38BDF8.toInt())
+        ),
+        Entry(
+            "Lima",
+            0xFFA3E635.toInt(),
+            intArrayOf(0xFF65A30D.toInt(), 0xFF16A34A.toInt(), 0xFFD9F99D.toInt())
         )
     )
 

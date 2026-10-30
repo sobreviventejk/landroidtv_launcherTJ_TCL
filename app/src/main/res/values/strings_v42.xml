@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Apps ocultos -->
+    <string name="app_menu_hide">Ocultar app</string>
+    <string name="app_hidden_toast">%1$s foi ocultado. Para reexibir, abra Configurações avançadas → Apps ocultos.</string>
+    <string name="hidden_apps_title">Apps ocultos</string>
+    <string name="hidden_apps_empty">Nenhum app oculto.</string>
+    <string name="hidden_app_restored">%1$s voltou a aparecer.</string>
+    <string name="hidden_apps_restore_all">Reexibir todos</string>
+
+    <!-- Frases automáticas -->
+    <string name="customize_message_interval">Intervalo entre as frases</string>
+    <string name="message_interval_minutes">A cada %1$d min</string>
+    <string name="message_interval_hours">A cada %1$d h</string>
+    <string name="messages_kind_motivation">Motivação</string>
+    <string name="messages_kind_movie">Cinema e séries</string>
+    <string name="messages_kind_couple">Relacionamento</string>
+
+    <!-- Busca externa -->
+    <string name="search_online_title">Pesquisar fora da launcher</string>
+    <string name="search_internet">Internet: “%1$s”</string>
+    <string name="search_youtube">YouTube: “%1$s”</string>
+    <string name="search_play_store">Play Store: “%1$s”</string>
+    <string name="search_external_failed">Não há app disponível para essa pesquisa.</string>
+
+    <!-- Cache seguro -->
+    <string name="clear_cache_all_title">Limpar cache dos apps</string>
+    <string name="clear_cache_all_confirm">Somente arquivos temporários serão apagados. Nenhum dado, conta, foto, senha ou configuração dos usuários será removido. Em algumas TVs o Android permite limpar apenas o cache da própria launcher.\n\nDeseja continuar?</string>
+    <string name="clear_cache_all_done">Cache da launcher limpo: %1$s liberados. Solicitação de limpeza enviada para %2$d apps.</string>
+    <string name="clear_cache_all_limited">Cache da launcher limpo: %1$s liberados. O Android desta TV não permite limpar o cache dos outros apps. Nenhum dado foi apagado.</string>
+
+    <!-- Banners -->
+    <string name="customize_banners">Banners de vídeos e filmes</string>
+    <string name="banners_source">Origem dos banners</string>
+    <string name="banners_source_youtube">YouTube — Em alta no Brasil</string>
+    <string name="banners_source_movies">Filmes seguros — TMDb</string>
+    <string name="banners_visibility">Mostrar banners na tela inicial</string>
+    <string name="banners_api_youtube">Configurar chave do YouTube Data API</string>
+    <string name="banners_api_movies">Configurar chave do TMDb</string>
+    <string name="banners_player">App para abrir os banners</string>
+    <string name="banners_player_value">Abrir com: %1$s</string>
+    <string name="banners_refresh">Atualizar banners agora</string>
+    <string name="banners_setup_youtube">Configure a chave do YouTube para ver os vídeos em alta</string>
+    <string name="banners_setup_movies">Configure a chave do TMDb para ver filmes aleatórios</string>
+    <string name="banners_unavailable">Não foi possível carregar os banners. Toque para configurar ou atualizar.</string>
+    <string name="banners_key_saved">Chave salva somente neste aparelho.</string>
+    <string name="banners_key_hint">Cole a chave de API</string>
+
+    <!-- Clima -->
+    <string name="weather_week_rain">Chuva: %1$d%%</string>
+    <string name="weather_updated">Previsão atualizada.</string>
+
+    <!-- Perfil -->
+    <string name="profile_adjust_title">Ajustar foto do perfil</string>
+    <string name="profile_adjust_hint">Arraste a foto ou use as barras para escolher o destaque. A prévia mostra o formato redondo.</string>
+    <string name="profile_adjust_zoom">Zoom</string>
+    <string name="profile_adjust_horizontal">Posição horizontal</string>
+    <string name="profile_adjust_vertical">Posição vertical</string>
+
+    <!-- Painel do sistema -->
+    <string name="dashboard_performance_value">Desempenho: %1$.1f de %2$.1f GHz em uso • %3$.1f GHz livres (%4$d%%)</string>
+    <string name="dashboard_performance_percent">Desempenho: %1$d%% em uso</string>
+    <string name="dashboard_network_usage">Hoje: recebido %1$s • enviado %2$s\nNeste mês: recebido %3$s • enviado %4$s</string>
+    <string name="dashboard_end_app">Encerrar %1$s</string>
+    <string name="dashboard_app_ended">%1$s foi encerrado.</string>
+</resources>
