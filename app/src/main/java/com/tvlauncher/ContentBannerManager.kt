@@ -10,6 +10,8 @@ import android.content.Context
  */
 object ContentBannerManager {
 
+    const val DEFAULT_PLAYER = "com.google.android.youtube"
+
     private const val PREFS_NAME = "launcher_banners"
     private const val KEY_PLAYER = "player_package"
 
@@ -33,9 +35,5 @@ object ContentBannerManager {
             .edit()
             .remove(KEY_PLAYER)
             .apply()
-    }
-
-    companion object {
-        const val DEFAULT_PLAYER = "com.google.android.youtube"
     }
 }
