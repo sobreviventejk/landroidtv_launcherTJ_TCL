@@ -60,6 +60,7 @@ app/build/outputs/apk/fdroid/release/app-fdroid-release.apk
 │       │   │   ├── UsageTracker.kt
 │       │   │   ├── Palette.kt
 │       │   │   ├── IconShapes.kt
+│       │   │   ├── ScreenEffect.kt
 │       │   │   ├── AuroraView.kt
 │       │   │   ├── RandomMessages.kt
 │       │   │   ├── GreetingText.kt
@@ -76,6 +77,7 @@ app/build/outputs/apk/fdroid/release/app-fdroid-release.apk
 │       │   │   ├── CrashLog.kt
 │       │   │   ├── ShortcutHelper.kt
 │       │   │   ├── RamOptimizationHelper.kt
+│       │   │   ├── BootReceiver.kt
 │       │   │   └── AccessibilityEnabler.kt
 │       │   └── res/
 │       │       ├── drawable/       # ícones vetoriais e fundos
@@ -98,8 +100,9 @@ app/build/outputs/apk/fdroid/release/app-fdroid-release.apk
 
 | Preferências/arquivo | Conteúdo |
 |---|---|
-| `launcher_layout` | abas, grade, formas, paleta, frases e intervalo |
+| `launcher_layout` | abas, grade, tamanho global dos ícones, efeito de tela, formas, paleta, frases e intervalo |
 | `launcher_settings` | seleção/ordem de apps, Home e otimização |
+| `accessibility_enabler` | controle do lembrete do serviço de acessibilidade (ponto de tempo e versão) |
 | `launcher_hidden_apps` | IDs dos apps ocultos pelo usuário |
 | `usage_counts` | contador de apps mais usados |
 | `launcher_banners` | origem, visibilidade e player dos banners |
@@ -131,18 +134,43 @@ val visibleInAllApps = installedApps.filter { app ->
 }
 ```
 
-### 4.2 Ícones e grade
+### 4.2 Ícones, grade e efeito de tela
 
 - O drawable original não é mais convertido em bitmap quadrado.
 - `ImageView.ScaleType.FIT_CENTER` preserva proporção e evita esticamento.
 - **Padrão (cartão moderno)**: cartão horizontal arredondado inspirado na referência enviada.
 - Outras formas: arredondado, redondo, retângulo e super arredondado.
-- Largura do slot segue as colunas; altura segue as linhas. Assim, mudar o tamanho por aba produz efeito real.
+- Largura do slot segue as colunas; altura segue as linhas.
 - Na grade, colunas e linhas aumentam ao arrastar para a direita.
 - Na barra de tamanho, arrastar para a direita aumenta os ícones.
-- Segurar a aba **Todos os apps** por mais de 700 ms abre seu ajuste de tamanho.
+- **Tamanho dos ícones é global** (`icon_scale_percent`, 60% a 130%, padrão 100%): vale para
+  todas as abas, a opção não existe mais por aba e nunca muda a quantidade de itens da grade.
+- **Efeito de tela** (`ScreenEffect.kt` + `AuroraView.kt`), desenhado em canvas puro atrás do
+  conteúdo, sempre com as cores da paleta escolhida: Nenhum, Aurora, Vinheta escura,
+  Vinheta colorida, Neblina, Estrelas, Ondas, Moldura neon, Grade retrô e Bolinhas (bokeh).
+  A configuração antiga "aurora on/off" é convertida automaticamente na nova opção.
 
-### 4.3 Frases e aparência
+### 4.3 Launcher padrão e botão Home
+
+- A launcher se torna a **Home padrão** do sistema: em TVs, o fluxo abre direto a tela
+  **Início/Home** das configurações do Android (`ACTION_HOME_SETTINGS`), não o diálogo do
+  `RoleManager`, que em TVs normalmente não existe ou não tem efeito; não há outras telas,
+  o fluxo cai em `Apps padrão` → `Configurações` e por fim mostra o comando ADB que resolve
+  mesmo em TVs bloqueadas (comum na TCL):
+  `adb shell cmd package set-home-activity com.tvlauncher/.MainActivity`.
+- Ainda não sendo o padrão, o aviso aparece na primeira execução e depois no máximo a cada
+  7 dias; ao voltar das configurações a launcher confere e comunica o resultado.
+- O **botão Home** volta a abrir a launcher pelo serviço de acessibilidade
+  (`TvHomeOverrideService`), que também relança a launcher quando a original aparece na tela.
+- Se o `WRITE_SECURE_SETTINGS` foi liberado uma vez por ADB
+  (`adb shell pm grant com.tvlauncher android.permission.WRITE_SECURE_SETTINGS`), a launcher
+  **religa sozinha** o serviço de acessibilidade: ao abrir, ao voltar do segundo plano e
+  após reiniciar a TV (`BootReceiver`), sempre conferindo o valor salvo no sistema.
+- Sem a permissão, ela pede a ativação na primeira execução, após cada atualização (o
+  Android desliga o serviço quando o app é atualizado) e depois a cada 3 dias no máximo.
+- O mesmo aviso ADB, com os dois comandos, continua acessível em **Configurações avançadas**.
+
+### 4.4 Frases e aparência
 
 - Saudação/editar frase removidos da interface.
 - Exibição apenas das **frases automáticas** quando ativadas.
@@ -150,7 +178,7 @@ val visibleInAllApps = installedApps.filter { app ->
 - Paletas: Índigo, Âmbar, Esmeralda, Rosa, Gelo, Violeta, Turquesa, Coral, Dourado, Azul noite e Lima.
 - Menus e diálogos escuros, cantos arredondados, largura proporcional e foco legível.
 
-### 4.4 Clima
+### 4.5 Clima
 
 - Local: Belém–PA, Terra Firme.
 - Open-Meteo, sem chave.
@@ -158,13 +186,13 @@ val visibleInAllApps = installedApps.filter { app ->
 - Atualização manual permitida pelo botão **Atualizar**.
 - Semana em cartões com ícone, data, condição, mínima, máxima e chuva.
 
-### 4.5 Busca
+### 4.6 Busca
 
 - Ao abrir: somente o campo de pesquisa.
 - Resultados locais somente após digitar letras contidas no nome do app.
 - Ações externas antes dos apps locais: Internet, YouTube e Play Store.
 
-### 4.6 Avatar e sistema
+### 4.7 Avatar e sistema
 
 - Antes de salvar: ajuste de zoom e posição, com prévia circular.
 - RAM, Desempenho e armazenamento com valores usados/livres e porcentagens.
@@ -172,14 +200,14 @@ val visibleInAllApps = installedApps.filter { app ->
 - Até sete apps do usuário com maior consumo, porcentagem e botão de encerrar.
 - Rede mostra tipo, nome, IP, consumo do dia e totais recebidos/enviados no mês.
 
-### 4.7 Cache seguro
+### 4.8 Cache seguro
 
 - A launcher limpa seu próprio cache diretamente.
 - Para outros apps, utiliza apenas a API de cache do sistema quando disponível.
 - Nunca chama `clearApplicationUserData`, desinstala apps nem apaga preferências, contas, fotos ou dados.
 - Se o Android bloquear a limpeza de terceiros, a UI informa a limitação sem relatar sucesso falso.
 
-### 4.8 Banners
+### 4.9 Banners
 
 - YouTube Data API v3: `videos?chart=mostPopular&regionCode=BR`.
 - Filtra conteúdo com restrição de idade e termos impróprios.
@@ -221,6 +249,9 @@ Publicação sem Git local, pela API Git Data do GitHub:
 - `FLAG_SECURE` nas telas sensíveis.
 - Serviço de acessibilidade sem leitura de texto/conteúdo das janelas.
 - Captura de Home limitada a launchers conhecidas e ao comportamento configurado.
+- `WRITE_SECURE_SETTINGS` é usada apenas para religar o próprio serviço de acessibilidade
+  (permissão concedida voluntariamente por ADB); o `BootReceiver` reativa o serviço depois
+  de reiniciar a TV, sem enviar nem executar nada além disso.
 - Cleartext desativado; rede configurada por XML.
 - Backup exclui segredos, banners, caches e logs.
 - Atualizador valida HTTPS, pacote e assinatura.
@@ -234,7 +265,7 @@ Publicação sem Git local, pela API Git Data do GitHub:
 [ ] Recursos R.string/R.id/R.drawable presentes
 [ ] XMLs bem formados
 [ ] APK assinado e íntegro
-[ ] Versão 4.2 no build.gradle
+[ ] Versão 4.2 (versionCode 40200) no build.gradle
 [ ] APK renomeado para TJ-TV-Launcher-4.2.apk
 [ ] Teste na TV: ícones, grade, menus, apps ocultos, busca, clima, avatar e banners
 ```
