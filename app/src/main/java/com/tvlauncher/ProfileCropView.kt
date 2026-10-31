@@ -6,6 +6,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.Gravity
@@ -203,11 +204,21 @@ class ProfileCropView @JvmOverloads constructor(
         preview.invalidate()
     }
 
-    private fun sourceCropRect(source: Bitmap): RectF {
+    /**
+     * Source pixels of the visible crop square. The destination can be a big [RectF] on screen,
+     * but [Canvas.drawBitmap] demands a [Rect] (integer) as the source, so the crop border is
+     * snapped to whole pixels — invisible on screen, since the crop is resized when drawn.
+     */
+    private fun sourceCropRect(source: Bitmap): Rect {
         val side = min(source.width, source.height) / scale
         val left = (centerX + 1f) * 0.5f * (source.width - side)
         val top = (centerY + 1f) * 0.5f * (source.height - side)
-        return RectF(left, top, left + side, top + side)
+        return Rect(
+            left.toInt(),
+            top.toInt(),
+            (left + side).toInt(),
+            (top + side).toInt()
+        )
     }
 
     private fun panBy(deltaX: Float, deltaY: Float) {

@@ -11,21 +11,20 @@
 - Versão de referência desta rodada: **4.2**
 - `minSdk 21`, `targetSdk 34`, `compileSdk 34`
 - Kotlin + Android Views (`RecyclerView`, `ConstraintLayout`, `AppCompat`)
-- Dois flavors:
-  - `fdroid`: sem atualizador interno; usado pelo workflow **Build APK**.
-  - `github`: contém o atualizador validado por pacote e assinatura.
+- Flavor F-Droid **removido**: o app é publicado como launcher independente, com o
+  atualizador interno ligado (`BuildConfig.UPDATES_ENABLED = true`).
 
 ### Tarefas Gradle
 
 ```bash
-./gradlew testFdroidDebugUnitTest --no-daemon
-./gradlew assembleFdroidRelease --no-daemon
+./gradlew testDebugUnitTest --no-daemon
+./gradlew assembleRelease --no-daemon
 ```
 
 APK gerado:
 
 ```text
-app/build/outputs/apk/fdroid/release/app-fdroid-release.apk
+app/build/outputs/apk/release/app-release.apk
 ```
 
 ## 2. Estrutura do projeto
@@ -35,16 +34,16 @@ app/build/outputs/apk/fdroid/release/app-fdroid-release.apk
 ├── app/
 │   ├── build.gradle
 │   └── src/
-│       ├── fdroid/java/com/tvlauncher/UpdaterBridge.kt
-│       ├── github/java/com/tvlauncher/
-│       │   ├── AppUpdateManager.kt
-│       │   ├── UpdatePromptActivity.kt
-│       │   └── UpdaterBridge.kt
 │       ├── main/
 │       │   ├── AndroidManifest.xml
 │       │   ├── java/com/tvlauncher/
 │       │   │   ├── MainActivity.kt
 │       │   │   ├── TvLauncherApplication.kt
+│       │   │   ├── AppUpdateManager.kt
+│       │   │   ├── UpdatePromptActivity.kt
+│       │   │   ├── UpdateWorker.kt
+│       │   │   ├── UpdaterBridge.kt
+│       │   │   ├── UpdateResult.kt
 │       │   │   ├── TvHomeOverrideService.kt
 │       │   │   ├── RecentsActivity.kt
 │       │   │   ├── AppSelectionActivity.kt
@@ -222,11 +221,11 @@ Workflow `.github/workflows/build-apk.yml`:
 
 ```yaml
 - name: Run unit tests
-  run: ./gradlew testFdroidDebugUnitTest --no-daemon
+  run: ./gradlew testDebugUnitTest --no-daemon
 - name: Build release APK
-  run: ./gradlew assembleFdroidRelease --no-daemon
+  run: ./gradlew assembleRelease --no-daemon
 - name: Rename APK
-  run: cp app/build/outputs/apk/fdroid/release/app-fdroid-release.apk app-release.apk
+  run: cp app/build/outputs/apk/release/app-release.apk app-release.apk
 - name: Upload APK
   uses: actions/upload-artifact@v4
   with:

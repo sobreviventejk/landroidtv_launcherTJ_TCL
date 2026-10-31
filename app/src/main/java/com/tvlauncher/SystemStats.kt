@@ -192,23 +192,26 @@ object SystemStats {
         var name = ""
         try {
             val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            val network = cm.activeNetwork
-            val caps = network?.let { cm.getNetworkCapabilities(it) }
-            connected = caps != null
-            if (caps != null) {
-                when {
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> type = "ethernet"
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> type = "wifi"
-                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> type = "mobile"
-                    else -> type = "other"
+            // getActiveNetwork/getNetworkCapabilities need API 23; older Androids stay offline.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val network = cm.activeNetwork
+                val caps = network?.let { cm.getNetworkCapabilities(it) }
+                connected = caps != null
+                if (caps != null) {
+                    when {
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> type = "ethernet"
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> type = "wifi"
+                        caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> type = "mobile"
+                        else -> type = "other"
+                    }
                 }
-            }
-            if (connected) {
-                name = when (type) {
-                    "wifi" -> wifiName(context).ifEmpty { "Wi-Fi" }
-                    "ethernet" -> "Cabo"
-                    "mobile" -> "Dados móveis"
-                    else -> "Conectado"
+                if (connected) {
+                    name = when (type) {
+                        "wifi" -> wifiName(context).ifEmpty { "Wi-Fi" }
+                        "ethernet" -> "Cabo"
+                        "mobile" -> "Dados móveis"
+                        else -> "Conectado"
+                    }
                 }
             }
         } catch (_: Exception) {

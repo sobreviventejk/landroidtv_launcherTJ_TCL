@@ -3,9 +3,6 @@
 # How to use: open the "Actions" tab of your fork -> "Build APK" -> "Run workflow".
 # When it finishes, download the "tv-launcher-apk" artifact (a zip with app-release.apk).
 #
-# It builds the "fdroid" flavor, which has NO automatic updater, so the app will never try to
-# replace your version with the original one from GitHub.
-#
 # Signing: the key is YOUR OWN key. The first run creates it and GitHub keeps it in the Actions
 # cache, so every later build is signed with the same key and installs over the old app without
 # uninstalling (your categories and settings stay). GitHub removes a cache that is not used for 7
@@ -74,13 +71,13 @@ jobs:
           echo "SIGNING_STORE_FILE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
       - name: Run unit tests
-        run: ./gradlew testFdroidDebugUnitTest --no-daemon
+        run: ./gradlew testDebugUnitTest --no-daemon
 
       - name: Build release APK
-        run: ./gradlew assembleFdroidRelease --no-daemon
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Rename APK
-        run: cp app/build/outputs/apk/fdroid/release/app-fdroid-release.apk app-release.apk
+        run: cp app/build/outputs/apk/release/app-release.apk app-release.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

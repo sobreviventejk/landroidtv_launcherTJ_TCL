@@ -3,28 +3,26 @@ package com.tvlauncher
 import android.content.Context
 
 /**
- * F-Droid-flavor no-op updater. This flavor does not ship the in-app
- * self-updater (no WorkManager, no APK downloads); updates are delivered
- * through F-Droid.
+ * Updater facade. Delegates to the real in-app updater ([AppUpdateManager]).
  */
 object UpdaterBridge {
 
     fun scheduleWeeklyCheck(context: Context) {
-        // No-op: F-Droid handles updates.
+        AppUpdateManager.scheduleWeeklyCheck(context)
     }
 
     fun isAutoUpdateEnabled(context: Context): Boolean {
-        return false
+        return AppUpdateManager.isAutoUpdateEnabled(context)
     }
 
     fun setAutoUpdateEnabled(context: Context, enabled: Boolean) {
-        // No-op: F-Droid handles updates.
+        AppUpdateManager.setAutoUpdateEnabled(context, enabled)
     }
 
     fun checkDownloadAndInstall(
         context: Context,
         ignoreAutoUpdateSetting: Boolean = false
     ): UpdateResult {
-        return UpdateResult.Skipped
+        return AppUpdateManager.checkDownloadAndInstall(context, ignoreAutoUpdateSetting)
     }
 }

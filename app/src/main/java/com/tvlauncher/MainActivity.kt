@@ -2289,7 +2289,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Only shows the updater switch/check in builds that have the updater (github flavor). */
+    /** Shows/hides the updater switch (updater is always present in this build). */
     private fun showUpdatesDialog() {
         val enabled = UpdaterBridge.isAutoUpdateEnabled(this)
         val options = arrayOf(
