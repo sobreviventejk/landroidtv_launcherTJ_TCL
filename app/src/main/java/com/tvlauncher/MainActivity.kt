@@ -246,7 +246,6 @@ class MainActivity : AppCompatActivity() {
         appManager = AppManager(this)
         layoutPrefs = LayoutPrefs(this)
         pinPrefs = PinPrefs(this)
-        setUpFocusFallbacks()
         setupRecyclerView()
         setupAllApps()
         setupTopApps()
@@ -414,6 +413,13 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
+        // Grid <-> banner row navigation on the first tab.
+        if (event.action == KeyEvent.ACTION_DOWN &&
+            event.repeatCount == 0 &&
+            handleBannerNavigation(event.keyCode)
+        ) {
+            return true
+        }
         return super.dispatchKeyEvent(event)
     }
 
@@ -446,26 +452,43 @@ class MainActivity : AppCompatActivity() {
     /**
      * D-pad navigation between the app grid and the YouTube banner row: walking DOWN past the
      * last grid row jumps to the banners, and walking UP out of the banners returns to the grid.
+     * Handled in dispatchKeyEvent because the grid's RecyclerView consumes the arrow keys inside
+     * itself and never hands them to a sibling view.
      */
-    private fun setUpFocusFallbacks() {
-        (appSlots as? FocusForwardRecyclerView)?.nextFocusFallback = { direction ->
-            if (direction == View.FOCUS_DOWN &&
-                currentTab == TAB_HOME &&
-                bannerStrip.visibility == View.VISIBLE &&
-                bannerRecycler.childCount > 0
-            ) {
-                bannerRecycler.getChildAt(0)
-            } else {
-                null
+    private fun handleBannerNavigation(keyCode: Int): Boolean {
+        if (bannerStrip.visibility != View.VISIBLE) return false
+        val focusedView = currentFocus ?: return false
+
+        if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN &&
+            currentTab == TAB_HOME &&
+            appSlots.hasFocus() &&
+            focusedView != null &&
+            (focusedView.parent === appSlots || focusedView === appSlots.focusedChild)
+        ) {
+            val position = appSlots.getChildAdapterPosition(focusedView)
+            if (position == RecyclerView.NO_POSITION) return false
+            val columns = (appSlots.layoutManager as? GridLayoutManager)?.spanCount ?: return false
+            val itemCount = appSlotAdapter.itemCount
+            if (itemCount == 0) return false
+            // On the last row → jump to the banners (headers span full width but sit on
+            // their own rows, so the row math stays close enough for the edge check).
+            val row = position / columns
+            val lastRow = (itemCount - 1) / columns
+            if (row < lastRow) return false
+            val banner = bannerRecycler.getChildAt(0) ?: return false
+            banner.requestFocus()
+            return true
+        }
+
+        if (keyCode == KeyEvent.KEYCODE_DPAD_UP && bannerRecycler.hasFocus()) {
+            val gridChild = appSlots.getChildAt(appSlots.childCount - 1)
+            if (gridChild != null) {
+                appSlots.smoothScrollToPosition(appSlotAdapter.itemCount - 1)
+                gridChild.requestFocus()
+                return true
             }
         }
-        (bannerRecycler as? FocusForwardRecyclerView)?.nextFocusFallback = { direction ->
-            if (direction == View.FOCUS_UP && appSlots.childCount > 0) {
-                appSlots.getChildAt(appSlots.childCount - 1)
-            } else {
-                null
-            }
-        }
+        return false
     }
 
     private fun setupAllApps() {
@@ -1663,7 +1686,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun exportBackupToDownloads() {
-        Thread(name = "backup-export") {
+        Thread {
             val name = "launcher_backup_" +
                 SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.US).format(Date()) + ".json"
             val ok = try {
@@ -1673,12 +1696,12 @@ class MainActivity : AppCompatActivity() {
             }
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
-                Toast.makeText(
-                    this,
-                    if (ok) getString(R.string.backup_saved_to_download, name)
-                    else R.string.backup_write_failed,
-                    Toast.LENGTH_LONG
-                ).show()
+                val message = if (ok) {
+                    getString(R.string.backup_saved_to_download, name)
+                } else {
+                    getString(R.string.backup_write_failed)
+                }
+                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             }
         }.start()
     }
@@ -1728,7 +1751,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showSavedBackupsDialog() {
-        Thread(name = "backup-list") {
+        Thread {
             val backups = listSavedBackups()
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
@@ -3280,7 +3303,7 @@ class MainActivity : AppCompatActivity() {
                 } catch (_: Exception) {
                 }
                 if (!launched) {
-                    Thread(name = "event-log-save") {
+                    Thread {
                         val ok = try {
                             saveTextToDownloads(
                                 "tj-tv-launcher-log.txt",
@@ -3292,16 +3315,15 @@ class MainActivity : AppCompatActivity() {
                         }
                         mainHandler.post {
                             if (isFinishing || isDestroyed) return@post
-                            Toast.makeText(
-                                this,
-                                if (ok)
-                                    getString(
-                                        R.string.backup_saved_to_download,
-                                        "tj-tv-launcher-log.txt"
-                                    )
-                                else R.string.backup_write_failed,
-                                Toast.LENGTH_LONG
-                            ).show()
+                            val message = if (ok) {
+                                getString(
+                                    R.string.backup_saved_to_download,
+                                    "tj-tv-launcher-log.txt"
+                                )
+                            } else {
+                                getString(R.string.backup_write_failed)
+                            }
+                            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                         }
                     }.start()
                 }
@@ -3482,13 +3504,13 @@ class MainActivity : AppCompatActivity() {
             try {
                 storagePermissionLauncher.launch(permission)
             } catch (_: Exception) {
-                Toast.makeText(this, R.string.wallpaper_folder_none, Toast.LENGTH_LONG).show()
+                Toast.makeText(this, R.string.wallpaper_folders_none, Toast.LENGTH_LONG).show()
             }
         }
     }
 
     private fun showMediaStoreFolderDialog() {
-        Thread(name = "wallpaper-folders") {
+        Thread {
             val folders = try {
                 WallpaperManager.listLocalImageFolders(this)
             } catch (_: Exception) {
@@ -3524,7 +3546,7 @@ class MainActivity : AppCompatActivity() {
     /** Copies the chosen folder's photos into the launcher's wallpaper cache (no SAF needed). */
     private fun importPhotosFromMediaStoreFolder(folderPath: String) {
         Toast.makeText(this, R.string.wallpaper_folders_loading, Toast.LENGTH_SHORT).show()
-        Thread(name = "wallpaper-import") {
+        Thread {
             val uris = try {
                 WallpaperManager.imageUrisInFolder(this, folderPath)
             } catch (_: Exception) {
