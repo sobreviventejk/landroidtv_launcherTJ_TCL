@@ -216,6 +216,8 @@ class MainActivity : AppCompatActivity() {
             setContentView(R.layout.activity_main)
         } catch (crash: Throwable) {
             showStartupError("FALHA AO CRIAR A TELA INICIAL", crash)
+            crash.printStackTrace()
+            android.util.Log.e("StartupCrash", "FALHA AO CRIAR A TELA INICIAL", crash)
             return
         }
 
@@ -264,6 +266,8 @@ class MainActivity : AppCompatActivity() {
         refreshWeather(force = false)
         } catch (crash: Throwable) {
             showStartupError("FALHA AO INICIAR O LAUNCHER", crash)
+            crash.printStackTrace()
+            android.util.Log.e("StartupCrash", "FALHA AO INICIAR O LAUNCHER", crash)
             return
         }
 
@@ -317,7 +321,7 @@ class MainActivity : AppCompatActivity() {
             }
             val trace = detail.toString()
             CrashLog.log(this, "STARTUP CRASH: ${crash.javaClass.name}: ${crash.message ?: "-"}")
-            saveCrashExternal(trace)
+            saveCrashExternal(trace, "startup_crash.txt")
 
             val density = resources.displayMetrics.density
             val scroll = ScrollView(this).apply {
@@ -347,10 +351,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     /** Mirror of the last crash in public app storage, reachable without root. */
-    private fun saveCrashExternal(text: String) {
+    private fun saveCrashExternal(text: String, fileName: String = "last_crash.txt") {
         try {
             val dir = getExternalFilesDir(null) ?: return
-            File(dir, "last_crash.txt").writeText(text.take(6000))
+            File(dir, fileName).writeText(text.take(6000))
         } catch (_: Exception) {
         }
     }
@@ -3581,6 +3585,8 @@ class MainActivity : AppCompatActivity() {
 
 
     override fun onResume() {
+        // Keep the startup error screen on display instead of crashing again in resume.
+        if (!::appManager.isInitialized) return
         super.onResume()
         loadHomeInfos()
         refreshTopApps()
