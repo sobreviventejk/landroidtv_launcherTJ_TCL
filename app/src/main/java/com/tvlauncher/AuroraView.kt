@@ -42,7 +42,7 @@ class AuroraView @JvmOverloads constructor(
     private val rect = RectF()
 
     private var colors: IntArray = Palette.of(Palette.DEFAULT).aurora
-    private var effect: Int = ScreenEffect.AURORA
+    private var effect: Int = ScreenEffect.NONE
     private var animator: ValueAnimator? = null
     private var animationAllowed = true
 
@@ -178,7 +178,9 @@ class AuroraView @JvmOverloads constructor(
             ScreenEffect.NEON -> drawNeon(canvas, w, h)
             ScreenEffect.GRID -> drawGrid(canvas, w, h)
             ScreenEffect.BOKEH -> drawBokeh(canvas, w, h)
-            else -> drawAurora(canvas, w, h)
+            ScreenEffect.METEORS -> drawMeteors(canvas, w, h)
+            ScreenEffect.BUBBLES -> drawBubbles(canvas, w, h)
+            else -> return
         }
         paint.shader = null
     }
@@ -393,6 +395,59 @@ class AuroraView @JvmOverloads constructor(
             val edge = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
             paint.shader = RadialGradient(cx, cy, radius, center, edge, Shader.TileMode.CLAMP)
             canvas.drawCircle(cx, cy, radius, paint)
+        }
+    }
+
+    /** Bright diagonal shooting stars, spread across the whole wallpaper. */
+    private fun drawMeteors(canvas: Canvas, w: Float, h: Float) {
+        paint.shader = null
+        for (i in 0 until 12) {
+            val color = colors[i % colors.size]
+            val progress = (time * 0.70f + i * 0.137f) % 1f
+            val startX = w * (0.08f + ((i * 37) % 100) / 100f)
+            val x = startX - progress * w * 0.38f
+            val y = -h * 0.12f + progress * h * 1.28f
+            val tail = min(w, h) * (0.055f + (i % 3) * 0.018f)
+            val alpha = (95 + 120 * phase).toInt().coerceIn(0, 255)
+            stroke.color = Color.argb(
+                alpha,
+                Color.red(color),
+                Color.green(color),
+                Color.blue(color)
+            )
+            stroke.strokeWidth = max(2f, min(w, h) * 0.0035f)
+            canvas.drawLine(x, y, x + tail, y - tail * 0.62f, stroke)
+            paint.color = Color.argb(alpha, 255, 255, 255)
+            canvas.drawCircle(x, y, max(2f, min(w, h) * 0.0045f), paint)
+        }
+    }
+
+    /** Translucent coloured bubbles rising continuously from the bottom. */
+    private fun drawBubbles(canvas: Canvas, w: Float, h: Float) {
+        paint.shader = null
+        for (i in 0 until 18) {
+            val color = colors[i % colors.size]
+            val speed = 0.055f + (i % 5) * 0.012f
+            val progress = (((i * 0.173f - time * speed) % 1f) + 1f) % 1f
+            val baseX = ((i * 0.239f + 0.04f) % 1f) * w
+            val x = baseX + sin((time * 2f + i) * PI).toFloat() * w * 0.018f
+            val y = h * (1.08f - progress * 1.18f)
+            val radius = min(w, h) * (0.010f + (i % 6) * 0.004f)
+            paint.color = Color.argb(
+                28,
+                Color.red(color),
+                Color.green(color),
+                Color.blue(color)
+            )
+            canvas.drawCircle(x, y, radius, paint)
+            stroke.color = Color.argb(
+                135,
+                Color.red(color),
+                Color.green(color),
+                Color.blue(color)
+            )
+            stroke.strokeWidth = max(1.5f, min(w, h) * 0.0022f)
+            canvas.drawCircle(x, y, radius, stroke)
         }
     }
 

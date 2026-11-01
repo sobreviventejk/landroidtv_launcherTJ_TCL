@@ -1,7 +1,5 @@
 package com.tvlauncher
 
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
@@ -13,14 +11,13 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 
 /**
- * "Todos os apps" in the Google TV tile style: every app is a rounded card with the icon taking
- * most of it and NO name below — the name (and where the app goes) only appears on focus.
- * The grid arrangement follows the same columns/rows selected for the home grid.
+ * "Todos os apps" uses exactly the same wide card and focus glow as every other category.
+ * The name and status only appear while the tile is focused.
  */
 class AllAppsAdapter(
     private val onClick: (Row) -> Unit,
     private val onLongClick: (Row) -> Unit,
-    private val iconSizePx: () -> Int,
+    private val cardSizePx: () -> TileStyle.CardSize,
     /** Height of one tile: follows the row arrangement of the grid. */
     private val rowHeightPx: () -> Int = { 0 },
     private val iconShape: () -> Int = { IconShapes.DEFAULT }
@@ -34,12 +31,6 @@ class AllAppsAdapter(
             notifyDataSetChanged()
         }
 
-    /**
-     * @property app the installed app
-     * @property id identifier used on the home screen (see [AppIdentifier])
-     * @property added true when the app is on the home screen
-     * @property status shown under the name while the tile is focused
-     */
     data class Row(
         val app: AppInfo,
         val id: String,
@@ -60,50 +51,39 @@ class AllAppsAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val row = getItem(position)
-
-        // Tile height follows the row arrangement; the card is a square that fits the cell.
         val height = rowHeightPx().coerceAtLeast(1)
-        if (height > 0) {
-            holder.itemView.layoutParams = holder.itemView.layoutParams.apply {
-                this.height = height
-            }
-            val scale = (height / (140f * holder.itemView.resources.displayMetrics.density))
-                .coerceIn(0.8f, 1.8f)
-            holder.name.setTextSize(TypedValue.COMPLEX_UNIT_SP, (13f * scale).coerceIn(10f, 20f))
-            holder.status.setTextSize(TypedValue.COMPLEX_UNIT_SP, (10f * scale).coerceIn(9f, 15f))
+        holder.itemView.layoutParams = holder.itemView.layoutParams.apply {
+            this.height = height
         }
+        val scale = (height / (140f * holder.itemView.resources.displayMetrics.density))
+            .coerceIn(0.8f, 1.8f)
+        holder.name.setTextSize(TypedValue.COMPLEX_UNIT_SP, (12f * scale).coerceIn(10f, 18f))
+        holder.status.setTextSize(TypedValue.COMPLEX_UNIT_SP, (10f * scale).coerceIn(9f, 14f))
         holder.name.text = row.app.getDisplayName()
         holder.status.text = row.status
 
-        // Uniform Google TV card: rounded square, translucent fill, icon centered inside.
-        val cardSide = iconSizePx().coerceAtLeast(1)
+        val cardSize = cardSizePx()
         holder.icon.layoutParams = holder.icon.layoutParams.apply {
-            width = cardSide
-            this.height = cardSide
+            width = cardSize.widthPx
+            this.height = cardSize.heightPx
         }
-        val shape = iconShape()
-        val padding = (cardSide * 0.09f).toInt()
-        holder.icon.setPadding(padding, padding, padding, padding)
-        holder.icon.scaleType = ImageView.ScaleType.FIT_CENTER
-        IconShapes.applyTo(holder.icon, shape)
         holder.icon.setImageDrawable(
-            row.app.getIcon(holder.itemView.context.packageManager, cardSide)
+            row.app.getTileArtwork(holder.itemView.context.packageManager, cardSize.widthPx)
         )
 
         holder.itemView.setOnFocusChangeListener { _, focused ->
-            styleCard(holder.icon, cardSide, focused)
+            TileStyle.apply(holder.icon, cardSize, focused, accentColor, iconShape())
             holder.name.visibility = if (focused) View.VISIBLE else View.INVISIBLE
             holder.status.visibility = if (focused) View.VISIBLE else View.INVISIBLE
         }
-        styleCard(holder.icon, cardSide, holder.itemView.isFocused)
-        holder.name.visibility = if (holder.itemView.isFocused) View.VISIBLE else View.INVISIBLE
-        holder.status.visibility = if (holder.itemView.isFocused) View.VISIBLE else View.INVISIBLE
+        val focused = holder.itemView.isFocused
+        TileStyle.apply(holder.icon, cardSize, focused, accentColor, iconShape())
+        holder.name.visibility = if (focused) View.VISIBLE else View.INVISIBLE
+        holder.status.visibility = if (focused) View.VISIBLE else View.INVISIBLE
 
         holder.itemView.setOnClickListener {
             val pos = holder.bindingAdapterPosition
-            if (pos != RecyclerView.NO_POSITION) {
-                onClick(getItem(pos))
-            }
+            if (pos != RecyclerView.NO_POSITION) onClick(getItem(pos))
         }
         holder.itemView.setOnLongClickListener {
             holder.itemView.postDelayed({
@@ -113,44 +93,6 @@ class AllAppsAdapter(
                 }
             }, 200L)
             true
-        }
-    }
-
-    /**
-     * The exact same tile look as the home grid: always a rounded card, with a soft fill and a
-     * hairline border; on focus the fill warms up, the border grows (proportional to the card)
-     * and the card pops forward. The stroke scale follows the icon size setting.
-     */
-    private fun styleCard(icon: ImageView, sidePx: Int, focused: Boolean) {
-        val density = icon.resources.displayMetrics.density
-        val radius = sidePx * 0.17f
-        icon.background = GradientDrawable().apply {
-            cornerRadius = radius
-            if (focused) {
-                setColor(
-                    Color.argb(
-                        0x40,
-                        Color.red(accentColor),
-                        Color.green(accentColor),
-                        Color.blue(accentColor)
-                    )
-                )
-                setStroke(
-                    (sidePx * 0.035f).toInt().coerceAtLeast((3 * density).toInt()),
-                    accentColor
-                )
-            } else {
-                setColor(0x26FFFFFF)
-                setStroke(
-                    (sidePx * 0.014f).toInt().coerceAtLeast(1),
-                    0x38FFFFFF
-                )
-            }
-        }
-        icon.elevation = if (focused) 8f * density else 2f * density
-        val target = if (focused) 1.05f else 1f
-        if (kotlin.math.abs(icon.scaleX - target) > 0.001f) {
-            icon.animate().scaleX(target).scaleY(target).setDuration(90L).start()
         }
     }
 

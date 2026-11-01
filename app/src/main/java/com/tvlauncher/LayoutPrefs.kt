@@ -166,9 +166,11 @@ class LayoutPrefs(context: Context) {
      */
     fun getScreenEffect(): Int {
         val saved = prefs.getInt(KEY_SCREEN_EFFECT, -1)
+        // Aurora was removed from the choices; migrate its old saved value to a visible effect.
+        if (saved == ScreenEffect.AURORA) return ScreenEffect.STARS
         if (saved >= 0) return ScreenEffect.of(saved).id
         val oldAurora = prefs.getBoolean(KEY_AURORA, true)
-        return if (oldAurora) ScreenEffect.AURORA else ScreenEffect.NONE
+        return if (oldAurora) ScreenEffect.STARS else ScreenEffect.NONE
     }
 
     fun setScreenEffect(id: Int) {

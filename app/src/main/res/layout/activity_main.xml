@@ -280,7 +280,7 @@
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/bannerRecycler"
                 android:layout_width="match_parent"
-                android:layout_height="166dp"
+                android:layout_height="140dp"
                 android:clipToPadding="false"
                 android:overScrollMode="never"
                 android:scrollbars="none" />

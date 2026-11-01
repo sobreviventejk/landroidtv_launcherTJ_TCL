@@ -21,13 +21,14 @@ object ScreenEffect {
     const val NEON = 7
     const val GRID = 8
     const val BOKEH = 9
+    const val METEORS = 10
+    const val BUBBLES = 11
 
     data class Entry(val id: Int, @StringRes val nameRes: Int)
 
     /** Order shown in the settings dialog. */
     val ALL: List<Entry> = listOf(
         Entry(NONE, R.string.effect_none),
-        Entry(AURORA, R.string.effect_aurora),
         Entry(VIGNETTE, R.string.effect_vignette),
         Entry(COLORED_VIGNETTE, R.string.effect_colored_vignette),
         Entry(MIST, R.string.effect_mist),
@@ -35,10 +36,12 @@ object ScreenEffect {
         Entry(WAVES, R.string.effect_waves),
         Entry(NEON, R.string.effect_neon),
         Entry(GRID, R.string.effect_grid),
-        Entry(BOKEH, R.string.effect_bokeh)
+        Entry(BOKEH, R.string.effect_bokeh),
+        Entry(METEORS, R.string.effect_meteors),
+        Entry(BUBBLES, R.string.effect_bubbles)
     )
 
-    fun of(id: Int): Entry = ALL.firstOrNull { it.id == id } ?: ALL.first { it.id == AURORA }
+    fun of(id: Int): Entry = ALL.firstOrNull { it.id == id } ?: ALL.first()
 
     fun isVignette(id: Int): Boolean = id == VIGNETTE || id == COLORED_VIGNETTE
 }

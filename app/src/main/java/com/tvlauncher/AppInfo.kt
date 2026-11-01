@@ -48,8 +48,34 @@ data class AppInfo(
         return icon!!
     }
 
+    private var tileArtwork: Drawable? = null
+
+    /**
+     * Wide TV banner/logo when the app provides one, otherwise the normal app icon. This is what
+     * makes Netflix, YouTube and similar apps look like the rectangular cards of Google TV.
+     */
+    fun getTileArtwork(packageManager: PackageManager, iconSizePx: Int = 0): Drawable {
+        if (isShortcut) return getIcon(packageManager, iconSizePx)
+        tileArtwork?.let { return it }
+        val cacheKey = "tile:$packageName"
+        appManager?.getCachedIcon(cacheKey)?.let {
+            tileArtwork = it
+            return it
+        }
+        val banner = try {
+            packageManager.getApplicationBanner(packageName)
+        } catch (_: Exception) {
+            null
+        }
+        val artwork = banner ?: getIcon(packageManager, iconSizePx)
+        tileArtwork = artwork
+        appManager?.cacheIcon(cacheKey, artwork)
+        return artwork
+    }
+
     fun clearIcon() {
         icon = null
+        tileArtwork = null
     }
 
     fun getDisplayName(): String {

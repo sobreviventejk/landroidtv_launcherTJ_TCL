@@ -239,7 +239,7 @@ class AppSlotAdapter(
         } else {
             slot.appInfo?.let { app ->
                 holder.appIcon.setImageDrawable(
-                    app.getIcon(holder.itemView.context.packageManager, sizing.iconPx)
+                    app.getTileArtwork(holder.itemView.context.packageManager, sizing.iconPx)
                 )
                 holder.appName.text = app.getDisplayName()
 
@@ -290,50 +290,20 @@ class AppSlotAdapter(
         val highlighted = focused || moving
 
         if (!slot.isEmpty) {
-            // The card is the icon wrapper: it carries the focus look, so the ring always
-            // matches the current icon size.
-            val side = minOf(
+            val size = TileStyle.CardSize(
                 holder.appIcon.layoutParams.width.takeIf { it > 0 } ?: sizing.iconPx,
                 holder.appIcon.layoutParams.height.takeIf { it > 0 } ?: sizing.iconPx
-            ).coerceAtLeast(1)
-            holder.appIcon.background = GradientDrawable().apply {
-                cornerRadius = side * 0.17f
-                when {
-                    moving -> {
-                        setColor(0x38555555)
-                        setStroke((side * 0.035f).toInt().coerceAtLeast((3 * density).toInt()), accent)
-                    }
-                    focused -> {
-                        setColor(
-                            Color.argb(
-                                0x30,
-                                Color.red(accent),
-                                Color.green(accent),
-                                Color.blue(accent)
-                            )
-                        )
-                        setStroke(
-                            (side * 0.035f).toInt().coerceAtLeast((3 * density).toInt()),
-                            accent
-                        )
-                    }
-                    else -> {
-                        setColor(0x26FFFFFF)
-                        setStroke((side * 0.014f).toInt().coerceAtLeast(1), 0x38FFFFFF)
-                    }
-                }
-            }
+            )
+            TileStyle.apply(
+                holder.appIcon,
+                size,
+                focused,
+                accent,
+                iconShape,
+                moving
+            )
             holder.itemView.background = null
             holder.itemView.elevation = 0f
-            holder.appIcon.elevation = if (highlighted) 10f * density else 2f * density
-            val targetScale = if (highlighted) 1.06f else 1f
-            if (java.lang.Math.abs(holder.appIcon.scaleX - targetScale) > 0.001f) {
-                holder.appIcon.animate()
-                    .scaleX(targetScale)
-                    .scaleY(targetScale)
-                    .setDuration(90L)
-                    .start()
-            }
             holder.appName.visibility = if (highlighted) View.VISIBLE else View.INVISIBLE
         } else {
             // "+" tile: the focus highlight lives on the cell itself.
@@ -377,23 +347,16 @@ class AppSlotAdapter(
             holder.itemView.layoutParams = itemParams
         }
 
-        val modernCard = iconShape == IconShapes.DEFAULT
-        val iconFactor = s.iconScalePercent
-            .coerceIn(LayoutPrefs.MIN_ICON_SCALE, LayoutPrefs.MAX_ICON_SCALE) / 100f
-        val baseWidth: Float
-        val baseHeight: Float
-        if (modernCard) {
-            // Uniform square card on every tab: the same proportional card, scaled per tab.
-            val side = minOf(s.slotPx, s.slotHeightPx) * 0.86f
-            baseWidth = side
-            baseHeight = side
-        } else {
-            baseWidth = minOf(s.slotPx, s.slotHeightPx) * 0.74f
-            baseHeight = baseWidth
-        }
-        // The size bar scales the icon itself; it never changes how many items fit per row.
-        val iconWidth = (baseWidth * iconFactor).toInt().coerceIn(1, s.slotPx.coerceAtLeast(1))
-        val iconHeight = (baseHeight * iconFactor).toInt().coerceIn(1, s.slotHeightPx.coerceAtLeast(1))
+        // One shared calculation for home, categories and the most-used row. The all-apps grid
+        // calls the same TileStyle.size function, so no category can produce a different format.
+        val cardSize = TileStyle.size(
+            s.slotPx,
+            s.slotHeightPx,
+            s.iconScalePercent,
+            holder.itemView.resources.displayMetrics.density
+        )
+        val iconWidth = cardSize.widthPx
+        val iconHeight = cardSize.heightPx
 
         val iconParams = holder.appIcon.layoutParams as ConstraintLayout.LayoutParams
         if (iconParams.width != iconWidth || iconParams.height != iconHeight ||
@@ -420,22 +383,7 @@ class AppSlotAdapter(
         holder.addText.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.textSp)
         holder.plusButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.plusTextSp)
 
-        val cardPadding = if (modernCard) (minOf(iconWidth, iconHeight) * 0.09f).toInt() else 0
-        holder.appIcon.setPadding(cardPadding, cardPadding, cardPadding, cardPadding)
-        holder.appIcon.scaleType = ImageView.ScaleType.FIT_CENTER
-        holder.appIcon.background = if (modernCard) {
-            GradientDrawable().apply {
-                cornerRadius = minOf(iconWidth, iconHeight) * 0.17f
-                setColor(0x26FFFFFF)
-                setStroke(
-                    (minOf(iconWidth, iconHeight) * 0.014f).toInt().coerceAtLeast(1),
-                    0x38FFFFFF
-                )
-            }
-        } else {
-            null
-        }
-        IconShapes.applyTo(holder.appIcon, iconShape)
+        TileStyle.apply(holder.appIcon, cardSize, holder.itemView.isFocused, accentColor, iconShape)
     }
 
     companion object {

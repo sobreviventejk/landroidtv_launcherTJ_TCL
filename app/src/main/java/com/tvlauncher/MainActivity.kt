@@ -499,7 +499,7 @@ class MainActivity : AppCompatActivity() {
         allAppsAdapter = AllAppsAdapter(
             onClick = { row -> onAllAppsRowClick(row) },
             onLongClick = { row -> showAllAppActions(row) },
-            iconSizePx = { allAppsIconSizePx() },
+            cardSizePx = { allAppsCardSizePx() },
             rowHeightPx = { allAppsRowHeightPx() },
             iconShape = { layoutPrefs.getIconShape() }
         )
@@ -531,20 +531,20 @@ class MainActivity : AppCompatActivity() {
             resources.getDimensionPixelSize(R.dimen.grid_padding) * 2
     }
 
-    private fun allAppsIconSizePx(): Int {
-        // Side of the uniform rounded card, scaled by the icon size setting and fitted into
-        // the cell (column width x row height), leaving room for the name shown on focus.
+    private fun allAppsCardSizePx(): TileStyle.CardSize {
         val density = resources.displayMetrics.density
         val cols = allAppsColumns().coerceAtLeast(1)
         val rowHeight = allAppsRowHeightPx()
         val gridPadding = resources.getDimensionPixelSize(R.dimen.grid_padding)
         val itemMargin = resources.getDimensionPixelSize(R.dimen.grid_item_margin)
-        val colWidth = (allAppsList.width - gridPadding * 2) / cols - itemMargin * 2
-        val usable = minOf(colWidth.coerceAtLeast((60 * density).toInt()), (rowHeight * 0.86f).toInt())
-        val scale = layoutPrefs.getIconScalePercent()
-            .coerceIn(LayoutPrefs.MIN_ICON_SCALE, LayoutPrefs.MAX_ICON_SCALE) / 100f
-        return (usable * 0.92f * scale).toInt()
-            .coerceIn((40 * density).toInt(), usable.coerceAtLeast((40 * density).toInt()))
+        val colWidth = ((allAppsList.width - gridPadding * 2) / cols - itemMargin * 2)
+            .coerceAtLeast((60 * density).toInt())
+        return TileStyle.size(
+            colWidth,
+            rowHeight,
+            layoutPrefs.getIconScalePercent(),
+            density
+        )
     }
 
     /** Small horizontal row with the most used apps, shown above the grid of the first tab. */
@@ -689,6 +689,9 @@ class MainActivity : AppCompatActivity() {
         }
         if (::allAppsAdapter.isInitialized) {
             allAppsAdapter.accentColor = entry.accent
+        }
+        if (::bannerAdapter.isInitialized) {
+            bannerAdapter.accentColor = entry.accent
         }
         auroraView.setPalette(entry)
         val effect = layoutPrefs.getScreenEffect()
@@ -1631,26 +1634,70 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Backup and memory ----
 
+    /**
+     * TCL ships a framework stub for SAF intents: the intent resolves, but the stub only shows
+     * "you don't have an app for this". Detect it before launching so the fallback actually runs.
+     */
+    private fun hasRealSystemPicker(intent: Intent): Boolean {
+        return try {
+            packageManager.queryIntentActivities(intent, PackageManager.MATCH_DEFAULT_ONLY).any {
+                val packageName = it.activityInfo?.packageName.orEmpty()
+                val className = it.activityInfo?.name.orEmpty()
+                packageName.isNotEmpty() &&
+                    packageName != "com.android.tv.frameworkpackagestubs" &&
+                    !className.contains("Stub", ignoreCase = true)
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Opens a file manager already installed on the TV (this TCL has Amaze/Solid Explorer). */
+    private fun openInstalledFileManager(): Boolean {
+        val packages = listOf("com.alphainventor.filemanager", "com.amaze.filemanager")
+        for (packageName in packages) {
+            try {
+                val launch = packageManager.getLaunchIntentForPackage(packageName) ?: continue
+                TvHomeOverrideService.pauseOverrideFor(30000)
+                startActivity(launch)
+                return true
+            } catch (_: Exception) {
+            }
+        }
+        Toast.makeText(this, R.string.file_manager_none, Toast.LENGTH_LONG).show()
+        return false
+    }
+
     private fun startExport() {
-        // Prefer the system file picker; when the TV has none, write the JSON straight into the
-        // public Downloads folder (no permission needed for the app's own files).
-        var launched = false
+        val pickerIntent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "application/json"
+        }
+        if (!hasRealSystemPicker(pickerIntent)) {
+            exportBackupToDownloads()
+            return
+        }
         try {
             exportPicker.launch("launcher_backup.json")
-            launched = true
         } catch (_: Exception) {
+            exportBackupToDownloads()
         }
-        if (!launched) exportBackupToDownloads()
     }
 
     private fun startImport() {
-        var launched = false
+        val pickerIntent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "*/*"
+        }
+        if (!hasRealSystemPicker(pickerIntent)) {
+            showSavedBackupsDialog()
+            return
+        }
         try {
             importPicker.launch(arrayOf("application/json", "*/*"))
-            launched = true
         } catch (_: Exception) {
+            showSavedBackupsDialog()
         }
-        if (!launched) showSavedBackupsDialog()
     }
 
     /** Keeps a generic export helper used by the backup and the event log. */
@@ -1700,12 +1747,18 @@ class MainActivity : AppCompatActivity() {
             }
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
-                val message = if (ok) {
-                    getString(R.string.backup_saved_to_download, name)
+                if (ok) {
+                    AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+                        .setTitle(R.string.customize_backup_export)
+                        .setMessage(getString(R.string.backup_saved_to_download, name))
+                        .setPositiveButton(R.string.file_manager_open) { _, _ ->
+                            openInstalledFileManager()
+                        }
+                        .setNegativeButton(R.string.close, null)
+                        .show()
                 } else {
-                    getString(R.string.backup_write_failed)
+                    Toast.makeText(this, R.string.backup_write_failed, Toast.LENGTH_LONG).show()
                 }
-                Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             }
         }.start()
     }
@@ -1760,7 +1813,14 @@ class MainActivity : AppCompatActivity() {
             mainHandler.post {
                 if (isFinishing || isDestroyed) return@post
                 if (backups.isEmpty()) {
-                    Toast.makeText(this, R.string.backup_import_none, Toast.LENGTH_LONG).show()
+                    AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+                        .setTitle(R.string.backup_import_list)
+                        .setMessage(R.string.backup_import_none)
+                        .setPositiveButton(R.string.file_manager_open) { _, _ ->
+                            openInstalledFileManager()
+                        }
+                        .setNegativeButton(R.string.close, null)
+                        .show()
                     return@post
                 }
                 val names = backups.map { it.first }
@@ -1768,6 +1828,9 @@ class MainActivity : AppCompatActivity() {
                     .setTitle(R.string.backup_import_list)
                     .setItems(names.toTypedArray()) { _, which ->
                         readBackup(backups[which].second)
+                    }
+                    .setNeutralButton(R.string.file_manager_open) { _, _ ->
+                        openInstalledFileManager()
                     }
                     .setNegativeButton(R.string.cancel, null)
                     .create()
@@ -2479,13 +2542,17 @@ class MainActivity : AppCompatActivity() {
                 updateFolderText()
             }
             TvHomeOverrideService.pauseOverrideFor(30000)
-            // Priority 1: system folder picker (SAF). Priority 2 (back to back): a folder list
-            // built on MediaStore, which works on any TV without a picker app.
+            // TCL's SAF stub resolves the intent but is not a real picker; skip it explicitly.
+            if (!hasRealSystemPicker(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE))) {
+                folderPickCallback = null
+                showWallpaperFolderFallback()
+                return@setOnClickListener
+            }
             try {
                 folderPicker.launch(null)
             } catch (_: Exception) {
                 folderPickCallback = null
-                openMediaStoreFolderDialog()
+                showWallpaperFolderFallback()
             }
         }
 
@@ -3489,6 +3556,21 @@ class MainActivity : AppCompatActivity() {
         } else {
             Toast.makeText(this, R.string.wallpaper_failed, Toast.LENGTH_LONG).show()
         }
+    }
+
+    /** Folder choices that do not depend on TCL's missing/stubbed system picker. */
+    private fun showWallpaperFolderFallback() {
+        val options = arrayOf(
+            getString(R.string.wallpaper_folder_from_tv),
+            getString(R.string.file_manager_open)
+        )
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.wallpaper_folder_pick_method)
+            .setItems(options) { _, which ->
+                if (which == 0) openMediaStoreFolderDialog() else openInstalledFileManager()
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     /**

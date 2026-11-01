@@ -59,6 +59,8 @@
     <string name="effect_neon">Moldura neon</string>
     <string name="effect_grid">Grade retrô</string>
     <string name="effect_bokeh">Bolinhas (bokeh)</string>
+    <string name="effect_meteors">Chuva de meteoros</string>
+    <string name="effect_bubbles">Bolhas flutuantes</string>
 
     <!-- Primeira configuração: launcher padrão e botão Home -->
     <string name="default_launcher_start_title">Definir como launcher padrão</string>

@@ -119,6 +119,10 @@
     <string name="wallpaper_folder_choose">Escolher pasta</string>
     <string name="wallpaper_folder_selected">Pasta: %1$s</string>
     <string name="wallpaper_folder_no_picker">Esta TV não tem seletor de pastas. Use a opção de link ou as imagens online.</string>
+    <string name="wallpaper_folder_pick_method">Como escolher a pasta?</string>
+    <string name="wallpaper_folder_from_tv">Pastas de fotos desta TV</string>
+    <string name="file_manager_open">Abrir gerenciador de arquivos</string>
+    <string name="file_manager_none">Nenhum gerenciador de arquivos compatível foi encontrado.</string>
     <string name="wallpaper_folder_no_permission">Sem acesso às fotos da TV. Toque em “Permitir” para escolher uma pasta.</string>
     <string name="wallpaper_folders_title">Pastas com imagens</string>
     <string name="wallpaper_folders_none">Nenhuma pasta de imagens encontrada na TV.</string>

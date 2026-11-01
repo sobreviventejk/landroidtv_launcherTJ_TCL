@@ -266,6 +266,14 @@ class BannerAdapter(
 
     private val items = mutableListOf<BannerFeed.VideoBanner>()
 
+    /** Same focus glow colour as the app cards. */
+    var accentColor: Int = Palette.accent(Palette.DEFAULT)
+        set(value) {
+            if (field == value) return
+            field = value
+            notifyDataSetChanged()
+        }
+
     /** Read like RecyclerView's currentList by MainActivity. */
     val currentList: List<BannerFeed.VideoBanner>
         get() = items
@@ -296,14 +304,14 @@ class BannerAdapter(
         holder.boundUrl = banner.videoUrl
         holder.title.text = banner.title
 
-        // Rounded corners on the thumbnail itself (clean Google TV card look).
-        holder.image.clipToOutline = true
-        holder.image.outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                outline.setRoundRect(0, 0, view.width, view.height, view.resources
-                    .displayMetrics.density * 14f)
-            }
+        val density = context.resources.displayMetrics.density
+        val cardSize = TileStyle.CardSize((184 * density).toInt(), (136 * density).toInt())
+        fun style(focused: Boolean) {
+            TileStyle.apply(holder.itemView, cardSize, focused, accentColor)
         }
+        holder.itemView.setOnFocusChangeListener { _, focused -> style(focused) }
+        style(holder.itemView.isFocused)
+        holder.image.clipToOutline = true
         holder.image.setImageDrawable(
             ContextCompat.getDrawable(context, R.drawable.banner_placeholder)
         )
