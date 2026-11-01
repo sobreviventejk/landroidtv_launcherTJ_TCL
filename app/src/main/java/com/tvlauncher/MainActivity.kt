@@ -84,7 +84,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var weatherBox: LinearLayout
     private lateinit var weatherIcon: ImageView
     private lateinit var weatherText: TextView
-    private lateinit var bannerStrip: LinearLayout
+    private lateinit var bannerStrip: FrameLayout
     private lateinit var bannerRecycler: RecyclerView
     private lateinit var appManager: AppManager
     private lateinit var layoutPrefs: LayoutPrefs
