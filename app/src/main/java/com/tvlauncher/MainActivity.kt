@@ -166,6 +166,17 @@ class MainActivity : AppCompatActivity() {
             if (uri != null) writeEventLog(uri)
         }
 
+    /** MediaStore gallery picker: lists photo folders when the TV has no system picker. */
+    private val storagePermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) {
+                showMediaStoreFolderDialog()
+            } else {
+                Toast.makeText(this, R.string.wallpaper_folder_no_permission, Toast.LENGTH_LONG)
+                    .show()
+            }
+        }
+
     /** Used when the TV has no system folder picker: the user picks the photos themselves. */
     private val folderPhotosPicker =
         registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
@@ -235,6 +246,7 @@ class MainActivity : AppCompatActivity() {
         appManager = AppManager(this)
         layoutPrefs = LayoutPrefs(this)
         pinPrefs = PinPrefs(this)
+        setUpFocusFallbacks()
         setupRecyclerView()
         setupAllApps()
         setupTopApps()
@@ -431,6 +443,31 @@ class MainActivity : AppCompatActivity() {
         (appSlots.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
     }
 
+    /**
+     * D-pad navigation between the app grid and the YouTube banner row: walking DOWN past the
+     * last grid row jumps to the banners, and walking UP out of the banners returns to the grid.
+     */
+    private fun setUpFocusFallbacks() {
+        (appSlots as? FocusForwardRecyclerView)?.nextFocusFallback = { direction ->
+            if (direction == View.FOCUS_DOWN &&
+                currentTab == TAB_HOME &&
+                bannerStrip.visibility == View.VISIBLE &&
+                bannerRecycler.childCount > 0
+            ) {
+                bannerRecycler.getChildAt(0)
+            } else {
+                null
+            }
+        }
+        (bannerRecycler as? FocusForwardRecyclerView)?.nextFocusFallback = { direction ->
+            if (direction == View.FOCUS_UP && appSlots.childCount > 0) {
+                appSlots.getChildAt(appSlots.childCount - 1)
+            } else {
+                null
+            }
+        }
+    }
+
     private fun setupAllApps() {
         allAppsAdapter = AllAppsAdapter(
             onClick = { row -> onAllAppsRowClick(row) },
@@ -468,13 +505,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun allAppsIconSizePx(): Int {
-        val tileHeight = allAppsRowHeightPx()
-        val scaled = tileHeight * 0.72f * layoutPrefs.getIconScalePercent() / 100f
-        return scaled.toInt().coerceIn(1, tileHeight)
+        // Side of the uniform rounded card, scaled by the icon size setting and fitted into
+        // the cell (column width x row height), leaving room for the name shown on focus.
+        val density = resources.displayMetrics.density
+        val cols = allAppsColumns().coerceAtLeast(1)
+        val rowHeight = allAppsRowHeightPx()
+        val gridPadding = resources.getDimensionPixelSize(R.dimen.grid_padding)
+        val itemMargin = resources.getDimensionPixelSize(R.dimen.grid_item_margin)
+        val colWidth = (allAppsList.width - gridPadding * 2) / cols - itemMargin * 2
+        val usable = minOf(colWidth.coerceAtLeast((60 * density).toInt()), (rowHeight * 0.86f).toInt())
+        val scale = layoutPrefs.getIconScalePercent()
+            .coerceIn(LayoutPrefs.MIN_ICON_SCALE, LayoutPrefs.MAX_ICON_SCALE) / 100f
+        return (usable * 0.92f * scale).toInt()
+            .coerceIn((40 * density).toInt(), usable.coerceAtLeast((40 * density).toInt()))
     }
 
     /** Small horizontal row with the most used apps, shown above the grid of the first tab. */
-    private fun setupTopApps() {        val slotPx = (72 * resources.displayMetrics.density).toInt()
+    private fun setupTopApps() {
+        val slotPx = (72 * resources.displayMetrics.density).toInt()
         topAdapter = AppSlotAdapter(
             onPlusClick = { },
             onAppLongClick = { },
@@ -1557,19 +1605,150 @@ class MainActivity : AppCompatActivity() {
     // ---- Backup and memory ----
 
     private fun startExport() {
+        // Prefer the system file picker; when the TV has none, write the JSON straight into the
+        // public Downloads folder (no permission needed for the app's own files).
+        var launched = false
         try {
             exportPicker.launch("launcher_backup.json")
-        } catch (e: ActivityNotFoundException) {
-            Toast.makeText(this, R.string.backup_no_picker, Toast.LENGTH_LONG).show()
+            launched = true
+        } catch (_: Exception) {
         }
+        if (!launched) exportBackupToDownloads()
     }
 
     private fun startImport() {
+        var launched = false
         try {
             importPicker.launch(arrayOf("application/json", "*/*"))
-        } catch (e: ActivityNotFoundException) {
-            Toast.makeText(this, R.string.backup_no_picker, Toast.LENGTH_LONG).show()
+            launched = true
+        } catch (_: Exception) {
         }
+        if (!launched) showSavedBackupsDialog()
+    }
+
+    /** Keeps a generic export helper used by the backup and the event log. */
+    private fun saveTextToDownloads(displayName: String, mime: String, text: String): Boolean {
+        val body = text.toByteArray(Charsets.UTF_8)
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val values = android.content.ContentValues().apply {
+                    put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                    put(android.provider.MediaStore.MediaColumns.MIME_TYPE, mime)
+                    put(
+                        android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                        Environment.DIRECTORY_DOWNLOADS
+                    )
+                }
+                val uri = contentResolver.insert(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    values
+                )
+                uri?.let { target ->
+                    contentResolver.openOutputStream(target)?.use { out ->
+                        out.write(body)
+                    }
+                    true
+                } ?: false
+            } else {
+                val dir = Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS
+                )
+                dir?.mkdirs()
+                File(dir, displayName).writeBytes(body)
+                true
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun exportBackupToDownloads() {
+        Thread(name = "backup-export") {
+            val name = "launcher_backup_" +
+                SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.US).format(Date()) + ".json"
+            val ok = try {
+                saveTextToDownloads(name, "application/json", SettingsBackup.export(this))
+            } catch (_: Exception) {
+                false
+            }
+            mainHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                Toast.makeText(
+                    this,
+                    if (ok) getString(R.string.backup_saved_to_download, name)
+                    else R.string.backup_write_failed,
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }.start()
+    }
+
+    /** Backup files the launcher itself wrote into Downloads, newest first. */
+    private fun listSavedBackups(): List<Pair<String, Uri>> {
+        val result = mutableListOf<Pair<String, Uri>>()
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val projection = arrayOf(
+                    android.provider.MediaStore.MediaColumns._ID,
+                    android.provider.MediaStore.MediaColumns.DISPLAY_NAME
+                )
+                contentResolver.query(
+                    android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                    projection,
+                    "${android.provider.MediaStore.MediaColumns.DISPLAY_NAME} LIKE ?",
+                    arrayOf("launcher_backup%"),
+                    "${android.provider.MediaStore.MediaColumns.DATE_ADDED} DESC"
+                )?.use { cursor ->
+                    val idColumn = cursor.getColumnIndexOrThrow(
+                        android.provider.MediaStore.MediaColumns._ID
+                    )
+                    val nameColumn = cursor.getColumnIndexOrThrow(
+                        android.provider.MediaStore.MediaColumns.DISPLAY_NAME
+                    )
+                    while (cursor.moveToNext() && result.size < 15) {
+                        val uri = android.content.ContentUris.withAppendedId(
+                            android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                            cursor.getLong(idColumn)
+                        )
+                        result.add(cursor.getString(nameColumn) to uri)
+                    }
+                }
+            } else {
+                val dir = Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_DOWNLOADS
+                )
+                dir?.listFiles { file -> file.isFile && file.name.startsWith("launcher_backup") }
+                    ?.sortedByDescending { it.lastModified() }
+                    ?.take(15)
+                    ?.forEach { file -> result.add(file.name to Uri.fromFile(file)) }
+            }
+        } catch (_: Exception) {
+        }
+        return result
+    }
+
+    private fun showSavedBackupsDialog() {
+        Thread(name = "backup-list") {
+            val backups = listSavedBackups()
+            mainHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                if (backups.isEmpty()) {
+                    Toast.makeText(this, R.string.backup_import_none, Toast.LENGTH_LONG).show()
+                    return@post
+                }
+                val names = backups.map { it.first }
+                val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+                    .setTitle(R.string.backup_import_list)
+                    .setItems(names.toTypedArray()) { _, which ->
+                        readBackup(backups[which].second)
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .create()
+                styleDialog(dialog, widthFraction = 0.5f, maxWidthDp = 640)
+                dialog.backToMenu { showAdvancedSettingsDialog() }
+                dialog.show()
+            }
+        }.start()
     }
 
     private fun writeBackup(uri: Uri) {
@@ -2273,17 +2452,13 @@ class MainActivity : AppCompatActivity() {
                 updateFolderText()
             }
             TvHomeOverrideService.pauseOverrideFor(30000)
-            // Many TVs have no system folder picker (DocumentsUI). In that case the user picks
-            // the photos with any file/gallery app that handles pictures, and the launcher keeps
-            // its own copy of them.
+            // Priority 1: system folder picker (SAF). Priority 2 (back to back): a folder list
+            // built on MediaStore, which works on any TV without a picker app.
             try {
                 folderPicker.launch(null)
-            } catch (_: ActivityNotFoundException) {
-                folderPickCallback = null
-                launchPhotoMultiPicker()
             } catch (_: Exception) {
                 folderPickCallback = null
-                launchPhotoMultiPicker()
+                openMediaStoreFolderDialog()
             }
         }
 
@@ -3098,10 +3273,37 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.advanced_event_log)
             .setMessage(text + "\n\n" + getString(R.string.event_log_tip))
             .setPositiveButton(R.string.event_log_save) { _, _ ->
+                var launched = false
                 try {
                     logExportPicker.launch("tj-tv-launcher-log.txt")
-                } catch (_: ActivityNotFoundException) {
-                    Toast.makeText(this, R.string.backup_no_picker, Toast.LENGTH_LONG).show()
+                    launched = true
+                } catch (_: Exception) {
+                }
+                if (!launched) {
+                    Thread(name = "event-log-save") {
+                        val ok = try {
+                            saveTextToDownloads(
+                                "tj-tv-launcher-log.txt",
+                                "text/plain",
+                                buildEventLogText()
+                            )
+                        } catch (_: Exception) {
+                            false
+                        }
+                        mainHandler.post {
+                            if (isFinishing || isDestroyed) return@post
+                            Toast.makeText(
+                                this,
+                                if (ok)
+                                    getString(
+                                        R.string.backup_saved_to_download,
+                                        "tj-tv-launcher-log.txt"
+                                    )
+                                else R.string.backup_write_failed,
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }.start()
                 }
             }
             .setNeutralButton(R.string.event_log_clear) { _, _ ->
@@ -3261,6 +3463,82 @@ class MainActivity : AppCompatActivity() {
         } else {
             Toast.makeText(this, R.string.wallpaper_failed, Toast.LENGTH_LONG).show()
         }
+    }
+
+    /**
+     * Folder list built on MediaStore: the TV always has photos indexed, so the user can pick
+     * a folder without any file manager. Called after the SAF picker is unavailable.
+     */
+    private fun openMediaStoreFolderDialog() {
+        val permission =
+            if (Build.VERSION.SDK_INT >= 33) "android.permission.READ_MEDIA_IMAGES"
+            else "android.permission.READ_EXTERNAL_STORAGE"
+        if (ContextCompat.checkSelfPermission(this, permission) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            showMediaStoreFolderDialog()
+        } else {
+            TvHomeOverrideService.pauseOverrideFor(30000)
+            try {
+                storagePermissionLauncher.launch(permission)
+            } catch (_: Exception) {
+                Toast.makeText(this, R.string.wallpaper_folder_none, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private fun showMediaStoreFolderDialog() {
+        Thread(name = "wallpaper-folders") {
+            val folders = try {
+                WallpaperManager.listLocalImageFolders(this)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            mainHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                if (folders.isEmpty()) {
+                    Toast.makeText(this, R.string.wallpaper_folders_none, Toast.LENGTH_LONG).show()
+                    return@post
+                }
+                val labels = folders.map { folder ->
+                    getString(R.string.wallpaper_folders_label, folder.label, folder.count)
+                }
+                val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+                    .setTitle(R.string.wallpaper_folders_title)
+                    .setSingleChoiceItems(
+                        labels.toTypedArray(),
+                        -1
+                    ) { single, which ->
+                        single.dismiss()
+                        importPhotosFromMediaStoreFolder(folders[which].path)
+                    }
+                    .setNegativeButton(R.string.cancel, null)
+                    .create()
+                styleDialog(dialog, widthFraction = 0.5f, maxWidthDp = 640)
+                dialog.backToMenu { showWallpaperDialog() }
+                dialog.show()
+            }
+        }.start()
+    }
+
+    /** Copies the chosen folder's photos into the launcher's wallpaper cache (no SAF needed). */
+    private fun importPhotosFromMediaStoreFolder(folderPath: String) {
+        Toast.makeText(this, R.string.wallpaper_folders_loading, Toast.LENGTH_SHORT).show()
+        Thread(name = "wallpaper-import") {
+            val uris = try {
+                WallpaperManager.imageUrisInFolder(this, folderPath)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            mainHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                if (uris.isEmpty()) {
+                    Toast.makeText(this, R.string.wallpaper_folder_empty, Toast.LENGTH_LONG).show()
+                } else {
+                    importFolderPhotos(uris)
+                }
+            }
+        }.start()
     }
 
     private fun openAndroidSettings() {

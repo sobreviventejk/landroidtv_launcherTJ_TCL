@@ -710,4 +710,86 @@ object WallpaperManager {
         }
         return inSampleSize.coerceAtLeast(1)
     }
+
+    // ---- Local photo folders (MediaStore) ------------------------------------------------------
+    // TVs usually have no system folder picker, so the folder mode also offers a picker built
+    // on MediaStore: it lists the device photo folders without any extra app or SAF document.
+
+    /** One photo folder of the device, as seen by MediaStore. */
+    data class LocalImageFolder(val path: String, val label: String, val count: Int)
+
+    /**
+     * Lists the folders that contain photos. Reads the `_data` column directly, so it works on
+     * every Android version; must be called off the main thread. Requires the read-images
+     * permission that [com.tvlauncher.MainActivity] requests before calling.
+     */
+    fun listLocalImageFolders(context: Context): List<LocalImageFolder> {
+        val counts = LinkedHashMap<String, Int>()
+        try {
+            @Suppress("DEPRECATION")
+            val projection = arrayOf(android.provider.MediaStore.Images.Media._DATA)
+            context.contentResolver.query(
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                null,
+                null,
+                null
+            )?.use { cursor ->
+                val dataColumn = cursor.getColumnIndexOrThrow(
+                    android.provider.MediaStore.Images.Media._DATA
+                )
+                // Sample each folder instead of scanning a huge library row by row.
+                while (cursor.moveToNext() && counts.values.sum() < 150_000) {
+                    val data = cursor.getString(dataColumn) ?: continue
+                    val parent = File(data).parent ?: continue
+                    counts[parent] = (counts[parent] ?: 0) + 1
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return counts
+            .filter { it.value >= 1 }
+            .map { (path, count) ->
+                val folder = File(path)
+                LocalImageFolder(path, folder.name.ifEmpty { path }, count)
+            }
+            .sortedByDescending { it.count }
+            .take(20)
+    }
+
+    /** Photo URIs of one folder (as listed by [listLocalImageFolders]), capped for safety. */
+    fun imageUrisInFolder(context: Context, folderPath: String, limit: Int = 400): List<Uri> {
+        val result = mutableListOf<Uri>()
+        try {
+            @Suppress("DEPRECATION")
+            val projection = arrayOf(
+                android.provider.MediaStore.Images.Media._ID,
+                android.provider.MediaStore.Images.Media._DATA
+            )
+            val selection = "${android.provider.MediaStore.Images.Media._DATA} LIKE ?"
+            val args = arrayOf("$folderPath/%")
+            context.contentResolver.query(
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                args,
+                null
+            )?.use { cursor ->
+                val idColumn = cursor.getColumnIndexOrThrow(
+                    android.provider.MediaStore.Images.Media._ID
+                )
+                while (cursor.moveToNext() && result.size < limit) {
+                    val id = cursor.getLong(idColumn)
+                    result.add(
+                        android.content.ContentUris.withAppendedId(
+                            android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                            id
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return result
+    }
 }

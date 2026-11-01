@@ -239,7 +239,7 @@
             android:layout_marginTop="8dp"
             android:layout_weight="1">
 
-            <androidx.recyclerview.widget.RecyclerView
+            <com.tvlauncher.FocusForwardRecyclerView
                 android:id="@+id/appSlots"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
@@ -277,7 +277,7 @@
             android:paddingTop="6dp"
             android:visibility="gone">
 
-            <androidx.recyclerview.widget.RecyclerView
+            <com.tvlauncher.FocusForwardRecyclerView
                 android:id="@+id/bannerRecycler"
                 android:layout_width="match_parent"
                 android:layout_height="166dp"

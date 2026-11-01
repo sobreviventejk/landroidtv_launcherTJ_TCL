@@ -193,9 +193,9 @@ private class ForecastDialog(
     }
 
     private companion object {
-        const val WIDTH_FRACTION = 0.88f
-        const val HEIGHT_FRACTION = 0.86f
-        const val MAX_WIDTH_DP = 940
+        const val WIDTH_FRACTION = 0.60f
+        const val HEIGHT_FRACTION = 0.74f
+        const val MAX_WIDTH_DP = 700
         const val DIM_AMOUNT = 0.72f
     }
 }

@@ -60,6 +60,8 @@ class AllAppsAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val row = getItem(position)
+
+        // Tile height follows the row arrangement; the card is a square that fits the cell.
         val height = rowHeightPx().coerceAtLeast(1)
         if (height > 0) {
             holder.itemView.layoutParams = holder.itemView.layoutParams.apply {
@@ -73,48 +75,29 @@ class AllAppsAdapter(
         holder.name.text = row.app.getDisplayName()
         holder.status.text = row.status
 
-        val iconPx = iconSizePx().coerceAtLeast(1)
+        // Uniform Google TV card: rounded square, translucent fill, icon centered inside.
+        val cardSide = iconSizePx().coerceAtLeast(1)
         holder.icon.layoutParams = holder.icon.layoutParams.apply {
-            width = iconPx
-            this.height = iconPx
+            width = cardSide
+            this.height = cardSide
         }
         val shape = iconShape()
-        val padding = if (shape == IconShapes.DEFAULT) (iconPx * 0.06f).toInt() else 0
+        val padding = (cardSide * 0.09f).toInt()
         holder.icon.setPadding(padding, padding, padding, padding)
         holder.icon.scaleType = ImageView.ScaleType.FIT_CENTER
-        holder.icon.background = if (shape == IconShapes.DEFAULT) {
-            GradientDrawable().apply {
-                cornerRadius = iconPx * 0.16f
-                setColor(0x24FFFFFF)
-                setStroke(1, 0x30FFFFFF)
-            }
-        } else {
-            null
-        }
         IconShapes.applyTo(holder.icon, shape)
         holder.icon.setImageDrawable(
-            row.app.getIcon(holder.itemView.context.packageManager, iconPx)
+            row.app.getIcon(holder.itemView.context.packageManager, cardSide)
         )
 
-        // Same focus look as the home grid: accent border card, name appears on focus.
-        val density = holder.itemView.resources.displayMetrics.density
-        fun applyFocus() {
-            val focused = holder.itemView.isFocused
-            holder.itemView.background = GradientDrawable().apply {
-                cornerRadius = 22 * density
-                if (focused) {
-                    setColor(0x2E000000)
-                    setStroke((3 * density).toInt(), accentColor)
-                } else {
-                    setColor(Color.TRANSPARENT)
-                }
-            }
+        holder.itemView.setOnFocusChangeListener { _, focused ->
+            styleCard(holder.icon, cardSide, focused)
             holder.name.visibility = if (focused) View.VISIBLE else View.INVISIBLE
             holder.status.visibility = if (focused) View.VISIBLE else View.INVISIBLE
-            holder.itemView.elevation = if (focused) 8f * density else 0f
         }
-        holder.itemView.setOnFocusChangeListener { _, _ -> applyFocus() }
-        applyFocus()
+        styleCard(holder.icon, cardSide, holder.itemView.isFocused)
+        holder.name.visibility = if (holder.itemView.isFocused) View.VISIBLE else View.INVISIBLE
+        holder.status.visibility = if (holder.itemView.isFocused) View.VISIBLE else View.INVISIBLE
 
         holder.itemView.setOnClickListener {
             val pos = holder.bindingAdapterPosition
@@ -130,6 +113,44 @@ class AllAppsAdapter(
                 }
             }, 200L)
             true
+        }
+    }
+
+    /**
+     * The exact same tile look as the home grid: always a rounded card, with a soft fill and a
+     * hairline border; on focus the fill warms up, the border grows (proportional to the card)
+     * and the card pops forward. The stroke scale follows the icon size setting.
+     */
+    private fun styleCard(icon: ImageView, sidePx: Int, focused: Boolean) {
+        val density = icon.resources.displayMetrics.density
+        val radius = sidePx * 0.17f
+        icon.background = GradientDrawable().apply {
+            cornerRadius = radius
+            if (focused) {
+                setColor(
+                    Color.argb(
+                        0x40,
+                        Color.red(accentColor),
+                        Color.green(accentColor),
+                        Color.blue(accentColor)
+                    )
+                )
+                setStroke(
+                    (sidePx * 0.035f).toInt().coerceAtLeast((3 * density).toInt()),
+                    accentColor
+                )
+            } else {
+                setColor(0x26FFFFFF)
+                setStroke(
+                    (sidePx * 0.014f).toInt().coerceAtLeast(1),
+                    0x38FFFFFF
+                )
+            }
+        }
+        icon.elevation = if (focused) 8f * density else 2f * density
+        val target = if (focused) 1.05f else 1f
+        if (kotlin.math.abs(icon.scaleX - target) > 0.001f) {
+            icon.animate().scaleX(target).scaleY(target).setDuration(90L).start()
         }
     }
 

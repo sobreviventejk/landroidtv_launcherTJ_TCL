@@ -275,9 +275,9 @@ class AppSlotAdapter(
     }
 
     /**
-     * Focus look in the Google TV style: the focused tile becomes a rounded card with the accent
-     * colour — a soft fill, a solid border and a gentle border glow — and grows a few percent
-     * towards the user. The name of the app only shows up while the tile is focused.
+     * Focus look in the Google TV style: the focused tile is a rounded card with the accent
+     * colour — a soft fill, a solid border (proportional to the icon size, so it always follows
+     * the icon scale) and a gentle forward pop. The name of the app only shows while focused.
      */
     private fun applyFocusLook(
         holder: AppSlotViewHolder,
@@ -288,44 +288,81 @@ class AppSlotAdapter(
         val density = holder.itemView.resources.displayMetrics.density
         val accent = accentColor
         val highlighted = focused || moving
-        val radius = 22 * density
-        val background = GradientDrawable().apply {
-            cornerRadius = radius
-            when {
-                moving -> {
-                    setColor(0x38222222)
-                    setStroke((3 * density).toInt(), accent)
+
+        if (!slot.isEmpty) {
+            // The card is the icon wrapper: it carries the focus look, so the ring always
+            // matches the current icon size.
+            val side = minOf(
+                holder.appIcon.layoutParams.width.takeIf { it > 0 } ?: sizing.iconPx,
+                holder.appIcon.layoutParams.height.takeIf { it > 0 } ?: sizing.iconPx
+            ).coerceAtLeast(1)
+            holder.appIcon.background = GradientDrawable().apply {
+                cornerRadius = side * 0.17f
+                when {
+                    moving -> {
+                        setColor(0x38555555)
+                        setStroke((side * 0.035f).toInt().coerceAtLeast((3 * density).toInt()), accent)
+                    }
+                    focused -> {
+                        setColor(
+                            Color.argb(
+                                0x30,
+                                Color.red(accent),
+                                Color.green(accent),
+                                Color.blue(accent)
+                            )
+                        )
+                        setStroke(
+                            (side * 0.035f).toInt().coerceAtLeast((3 * density).toInt()),
+                            accent
+                        )
+                    }
+                    else -> {
+                        setColor(0x26FFFFFF)
+                        setStroke((side * 0.014f).toInt().coerceAtLeast(1), 0x38FFFFFF)
+                    }
                 }
-                focused -> {
-                    // Soft accent fill + solid accent border, like the reference card style.
+            }
+            holder.itemView.background = null
+            holder.itemView.elevation = 0f
+            holder.appIcon.elevation = if (highlighted) 10f * density else 2f * density
+            val targetScale = if (highlighted) 1.06f else 1f
+            if (java.lang.Math.abs(holder.appIcon.scaleX - targetScale) > 0.001f) {
+                holder.appIcon.animate()
+                    .scaleX(targetScale)
+                    .scaleY(targetScale)
+                    .setDuration(90L)
+                    .start()
+            }
+            holder.appName.visibility = if (highlighted) View.VISIBLE else View.INVISIBLE
+        } else {
+            // "+" tile: the focus highlight lives on the cell itself.
+            val background = GradientDrawable().apply {
+                cornerRadius = 22 * density
+                if (highlighted) {
                     setColor(
                         Color.argb(
-                            0x2E,
+                            0x30,
                             Color.red(accent),
                             Color.green(accent),
                             Color.blue(accent)
                         )
                     )
                     setStroke((3 * density).toInt(), accent)
-                }
-                else -> {
-                    // Unfocused tiles stay clean: no card, no border, just the icon.
+                } else {
                     setColor(Color.TRANSPARENT)
                 }
             }
-        }
-        holder.itemView.background = background
-        holder.itemView.elevation = if (highlighted) 10f * density else 0f
-        val targetScale = if (highlighted) 1.05f else 1f
-        if (java.lang.Math.abs(holder.itemView.scaleX - targetScale) > 0.001f) {
-            holder.itemView.animate()
-                .scaleX(targetScale)
-                .scaleY(targetScale)
-                .setDuration(90L)
-                .start()
-        }
-        if (!slot.isEmpty) {
-            holder.appName.visibility = if (highlighted) View.VISIBLE else View.INVISIBLE
+            holder.itemView.background = background
+            holder.itemView.elevation = if (highlighted) 10f * density else 0f
+            val targetScale = if (highlighted) 1.05f else 1f
+            if (java.lang.Math.abs(holder.itemView.scaleX - targetScale) > 0.001f) {
+                holder.itemView.animate()
+                    .scaleX(targetScale)
+                    .scaleY(targetScale)
+                    .setDuration(90L)
+                    .start()
+            }
         }
     }
 
@@ -346,9 +383,10 @@ class AppSlotAdapter(
         val baseWidth: Float
         val baseHeight: Float
         if (modernCard) {
-            // Reference layout: a rounded horizontal card, with the original icon fitted inside.
-            baseWidth = s.slotPx * 0.86f
-            baseHeight = minOf(s.slotHeightPx * 0.62f, s.slotPx * 0.86f)
+            // Uniform square card on every tab: the same proportional card, scaled per tab.
+            val side = minOf(s.slotPx, s.slotHeightPx) * 0.86f
+            baseWidth = side
+            baseHeight = side
         } else {
             baseWidth = minOf(s.slotPx, s.slotHeightPx) * 0.74f
             baseHeight = baseWidth
@@ -382,14 +420,17 @@ class AppSlotAdapter(
         holder.addText.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.textSp)
         holder.plusButton.setTextSize(TypedValue.COMPLEX_UNIT_SP, s.plusTextSp)
 
-        val cardPadding = if (modernCard) (minOf(iconWidth, iconHeight) * 0.07f).toInt() else 0
+        val cardPadding = if (modernCard) (minOf(iconWidth, iconHeight) * 0.09f).toInt() else 0
         holder.appIcon.setPadding(cardPadding, cardPadding, cardPadding, cardPadding)
         holder.appIcon.scaleType = ImageView.ScaleType.FIT_CENTER
         holder.appIcon.background = if (modernCard) {
             GradientDrawable().apply {
-                cornerRadius = minOf(iconWidth, iconHeight) * 0.16f
-                setColor(0x24FFFFFF)
-                setStroke(1, 0x30FFFFFF)
+                cornerRadius = minOf(iconWidth, iconHeight) * 0.17f
+                setColor(0x26FFFFFF)
+                setStroke(
+                    (minOf(iconWidth, iconHeight) * 0.014f).toInt().coerceAtLeast(1),
+                    0x38FFFFFF
+                )
             }
         } else {
             null

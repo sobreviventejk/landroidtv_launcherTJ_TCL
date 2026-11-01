@@ -119,6 +119,11 @@
     <string name="wallpaper_folder_choose">Escolher pasta</string>
     <string name="wallpaper_folder_selected">Pasta: %1$s</string>
     <string name="wallpaper_folder_no_picker">Esta TV não tem seletor de pastas. Use a opção de link ou as imagens online.</string>
+    <string name="wallpaper_folder_no_permission">Sem acesso às fotos da TV. Toque em “Permitir” para escolher uma pasta.</string>
+    <string name="wallpaper_folders_title">Pastas com imagens</string>
+    <string name="wallpaper_folders_none">Nenhuma pasta de imagens encontrada na TV.</string>
+    <string name="wallpaper_folders_loading">Carregando imagens…</string>
+    <string name="wallpaper_folders_label">%1$s — %2$d imagens</string>
     <string name="wallpaper_folder_empty">Não encontrei imagens nessa pasta.</string>
     <string name="wallpaper_dim_overlay">Escurecer o fundo para facilitar a leitura</string>
     <string name="wallpaper_refresh_now">Trocar agora</string>
@@ -139,6 +144,9 @@
     <string name="backup_failed">Não foi possível ler esse arquivo.</string>
     <string name="backup_write_failed">Não foi possível salvar o arquivo.</string>
     <string name="backup_no_picker">Esta TV não tem seletor de arquivos.</string>
+    <string name="backup_saved_to_download">Arquivo salvo em Downloads/%1$s</string>
+    <string name="backup_import_list">Bkps salvos na TV</string>
+    <string name="backup_import_none">Nenhum bkp salvo na TV. Salve um primeiro (ele fica em Downloads).</string>
 
     <!-- PIN das categorias -->
     <string name="category_lock">Proteger com PIN</string>

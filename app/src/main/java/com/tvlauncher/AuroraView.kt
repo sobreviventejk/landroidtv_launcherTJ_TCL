@@ -187,7 +187,8 @@ class AuroraView @JvmOverloads constructor(
 
     /** Three large radial gradients floating over the wallpaper. */
     private fun drawAurora(canvas: Canvas, w: Float, h: Float) {
-        val baseAlpha = (18 + 30 * phase).toInt()
+        // Clearly visible over any wallpaper, yet still calm.
+        val baseAlpha = (55 + 55 * phase).toInt()
         for (i in glows.indices) {
             val g = glows[i]
             val color = colors[i % colors.size]
@@ -213,14 +214,14 @@ class AuroraView @JvmOverloads constructor(
                 Color.TRANSPARENT
             }
             val middle = if (colored) {
-                Color.argb(38, Color.red(color), Color.green(color), Color.blue(color))
+                Color.argb(70, Color.red(color), Color.green(color), Color.blue(color))
             } else {
-                Color.argb(40, 0, 0, 0)
+                Color.argb(70, 0, 0, 0)
             }
             val edge = if (colored) {
-                Color.argb(175, Color.red(color), Color.green(color), Color.blue(color))
+                Color.argb(200, Color.red(color), Color.green(color), Color.blue(color))
             } else {
-                Color.argb(225, 0, 0, 0)
+                Color.argb(235, 0, 0, 0)
             }
             val radius = hypot(w / 2f, h / 2f)
             vignetteShader = RadialGradient(
@@ -246,7 +247,7 @@ class AuroraView @JvmOverloads constructor(
             val cx = (((raw % 1.25f) + 1.25f) % 1.25f - 0.12f) * w
             val cy = h * (0.18f + 0.16f * (i % 4))
             val radius = max(w, h) * (0.34f + 0.10f * (i % 3))
-            val alpha = (10 + 8 * phase).toInt()
+            val alpha = (30 + 26 * phase).toInt()
             val center = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
             val edge = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
             paint.shader = RadialGradient(cx, cy, radius, center, edge, Shader.TileMode.CLAMP)
@@ -315,7 +316,7 @@ class AuroraView @JvmOverloads constructor(
                 0f,
                 h,
                 Color.argb(0, Color.red(color), Color.green(color), Color.blue(color)),
-                Color.argb(85, Color.red(color), Color.green(color), Color.blue(color)),
+                Color.argb(110, Color.red(color), Color.green(color), Color.blue(color)),
                 Shader.TileMode.CLAMP
             )
             canvas.drawPath(path, paint)
@@ -332,7 +333,7 @@ class AuroraView @JvmOverloads constructor(
         val pulse = 0.65f + 0.35f * phase
         for (i in 0 until 4) {
             stroke.color = Color.argb(
-                ((52 - i * 11) * pulse).toInt().coerceIn(0, 255),
+                ((76 - i * 14) * pulse).toInt().coerceIn(0, 255),
                 Color.red(color),
                 Color.green(color),
                 Color.blue(color)
@@ -387,7 +388,7 @@ class AuroraView @JvmOverloads constructor(
             val cx = (((rawX % 1.2f) + 1.2f) % 1.2f - 0.1f) * w
             val cy = (((rawY % 1.2f) + 1.2f) % 1.2f - 0.1f) * h
             val radius = min(w, h) * (0.025f + 0.035f * ((i * 7) % 5) / 5f)
-            val alpha = (18 + 22 * phase).toInt()
+            val alpha = (36 + 36 * phase).toInt()
             val center = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
             val edge = Color.argb(0, Color.red(color), Color.green(color), Color.blue(color))
             paint.shader = RadialGradient(cx, cy, radius, center, edge, Shader.TileMode.CLAMP)
