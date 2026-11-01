@@ -1,4 +1,4 @@
-package com.tvlauncher
+﻿package com.tvlauncher
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -727,7 +727,7 @@ object WallpaperManager {
         val counts = LinkedHashMap<String, Int>()
         try {
             @Suppress("DEPRECATION")
-            val projection = arrayOf(android.provider.MediaStore.Images.Media._DATA)
+            val projection = arrayOf(android.provider.MediaStore.MediaColumns.DATA)
             context.contentResolver.query(
                 android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
                 projection,
@@ -736,7 +736,7 @@ object WallpaperManager {
                 null
             )?.use { cursor ->
                 val dataColumn = cursor.getColumnIndexOrThrow(
-                    android.provider.MediaStore.Images.Media._DATA
+                    android.provider.MediaStore.MediaColumns.DATA
                 )
                 // Sample each folder instead of scanning a huge library row by row.
                 while (cursor.moveToNext() && counts.values.sum() < 150_000) {
@@ -764,9 +764,9 @@ object WallpaperManager {
             @Suppress("DEPRECATION")
             val projection = arrayOf(
                 android.provider.MediaStore.Images.Media._ID,
-                android.provider.MediaStore.Images.Media._DATA
+                android.provider.MediaStore.MediaColumns.DATA
             )
-            val selection = "${android.provider.MediaStore.Images.Media._DATA} LIKE ?"
+            val selection = "${android.provider.MediaStore.MediaColumns.DATA} LIKE ?"
             val args = arrayOf("$folderPath/%")
             context.contentResolver.query(
                 android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
