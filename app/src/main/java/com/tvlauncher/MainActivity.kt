@@ -200,12 +200,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        try {
+            super.onCreate(savedInstanceState)
+            setContentView(R.layout.activity_main)
+        } catch (crash: Throwable) {
+            showStartupError("FALHA AO CRIAR A TELA INICIAL", crash)
+            return
+        }
 
-        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        try {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        appSlots = findViewById(R.id.appSlots)
+            appSlots = findViewById(R.id.appSlots)
         allAppsList = findViewById(R.id.allApps)
         tabContainer = findViewById(R.id.tabContainer)
         tabScroll = findViewById(R.id.tabScroll)
@@ -245,11 +251,19 @@ class MainActivity : AppCompatActivity() {
         selectTab(first, requestFocus = true)
         applyWallpaper()
         refreshWeather(force = false)
+        } catch (crash: Throwable) {
+            showStartupError("FALHA AO INICIAR O LAUNCHER", crash)
+            return
+        }
 
         // One-time setup: default Home app + Home-key accessibility service. It runs a moment
         // later so the home screen is already drawn when the first hint appears.
         mainHandler.postDelayed({
-            if (!isFinishing && !isDestroyed) runStartupSetup()
+            try {
+                if (!isFinishing && !isDestroyed) runStartupSetup()
+            } catch (crash: Throwable) {
+                showStartupError("FALHA NO SETUP INICIAL (900 ms)", crash)
+            }
         }, 900)
 
         ContextCompat.registerReceiver(
@@ -263,6 +277,71 @@ class MainActivity : AppCompatActivity() {
             "Launcher iniciada ${getVersionName()} · ${Build.MANUFACTURER} ${Build.MODEL}" +
                 " · Android ${Build.VERSION.RELEASE}"
         )
+    }
+
+    /**
+     * Debug safety net: if the launcher crashes while starting, it stays alive showing the
+     * error on screen instead of closing silently (style Android TV "app keeps crashing").
+     * The text can be photographed on the TV/cell phone and the crash is also saved to
+     * Android/data/com.tvlauncher/files/last_crash.txt for later extraction.
+     */
+    private fun showStartupError(title: String, crash: Throwable) {
+        try {
+            val detail = StringBuilder()
+            detail.append(title).append('\n')
+            detail.append(crash.javaClass.name).append(": ").append(crash.message ?: "-").append('\n')
+            crash.stackTrace.forEach { frame ->
+                detail.append("  at ").append(frame.toString()).append('\n')
+            }
+            var cause = crash.cause
+            var depth = 0
+            while (cause != null && depth < 3) {
+                detail.append("\nCAUSA ").append(depth + 1).append(": ")
+                    .append(cause.javaClass.name).append(": ").append(cause.message ?: "-").append('\n')
+                cause.stackTrace.take(12).forEach { frame ->
+                    detail.append("  at ").append(frame.toString()).append('\n')
+                }
+                cause = cause.cause
+                depth++
+            }
+            val text = detail.toString()
+            CrashLog.log(this, "STARTUP CRASH: ${crash.javaClass.name}: ${crash.message ?: "-"}")
+            saveCrashExternal(text)
+
+            val density = resources.displayMetrics.density
+            val scroll = ScrollView(this).apply {
+                setBackgroundColor(0xFF000000.toInt())
+            }
+            val label = TextView(this).apply {
+                setPadding(
+                    (14 * density).toInt(),
+                    (14 * density).toInt(),
+                    (14 * density).toInt(),
+                    (14 * density).toInt()
+                )
+                typeface = Typeface.MONOSPACE
+                textSize = 11f
+                setTextColor(0xFFFF8A80.toInt())
+                setTextIsSelectable(false)
+                text = "ERRO DE INICIO DO LAUNCHER\n\n" +
+                    text +
+                    "\n\nFotografe esta tela e envie ao suporte.\n" +
+                    "O log tambem esta em Android/data/com.tvlauncher/files/last_crash.txt"
+            }
+            scroll.addView(label)
+            setContentView(scroll)
+        } catch (nested: Throwable) {
+            CrashLog.log(this, "showStartupError falhou: ${nested.message ?: "-"}")
+        }
+    }
+
+    /** Mirror of the last crash in public app storage, reachable without root. */
+    private fun saveCrashExternal(text: String) {
+        try {
+            val dir = getExternalFilesDir(null) ?: return
+            File(dir, "last_crash.txt").writeText(text.take(6000))
+        } catch (_: Exception) {
+        }
     }
 
     override fun onNewIntent(intent: Intent) {

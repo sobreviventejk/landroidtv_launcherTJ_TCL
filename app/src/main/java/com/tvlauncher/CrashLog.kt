@@ -31,6 +31,13 @@ object CrashLog {
                 val stamp = timestamp()
                 val text = "$stamp  [${thread.name}]\n" + throwable.stackTraceToString()
                 File(appContext.filesDir, CRASH_FILE).writeText(text.take(MAX_CRASH_CHARS))
+                // Mirror readable without root (USB/file manager on the TV).
+                try {
+                    appContext.getExternalFilesDir(null)?.let { external ->
+                        File(external, CRASH_FILE).writeText(text.take(MAX_CRASH_CHARS))
+                    }
+                } catch (_: Exception) {
+                }
                 log(appContext, "ERRO FATAL em ${thread.name}: ${throwable.javaClass.simpleName}")
             } catch (_: Exception) {
             }
