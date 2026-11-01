@@ -267,6 +267,24 @@
                 android:textSize="14sp"
                 android:visibility="gone" />
         </FrameLayout>
+
+        <!-- Banners (YouTube trending) — visible on the "Início" tab only -->
+        <FrameLayout
+            android:id="@+id/bannerStrip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="8dp"
+            android:paddingTop="6dp"
+            android:visibility="gone">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/bannerRecycler"
+                android:layout_width="match_parent"
+                android:layout_height="166dp"
+                android:clipToPadding="false"
+                android:overScrollMode="never"
+                android:scrollbars="none" />
+        </FrameLayout>
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

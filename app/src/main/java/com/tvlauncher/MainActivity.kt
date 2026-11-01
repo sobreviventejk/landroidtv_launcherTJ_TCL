@@ -84,11 +84,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var weatherBox: LinearLayout
     private lateinit var weatherIcon: ImageView
     private lateinit var weatherText: TextView
+    private lateinit var bannerStrip: LinearLayout
+    private lateinit var bannerRecycler: RecyclerView
     private lateinit var appManager: AppManager
     private lateinit var layoutPrefs: LayoutPrefs
     private lateinit var appSlotAdapter: AppSlotAdapter
     private lateinit var allAppsAdapter: AllAppsAdapter
     private lateinit var topAdapter: AppSlotAdapter
+    private lateinit var bannerAdapter: BannerAdapter
     private lateinit var pinPrefs: PinPrefs
     private lateinit var gridLayoutManager: GridLayoutManager
 
@@ -220,6 +223,8 @@ class MainActivity : AppCompatActivity() {
         weatherBox = findViewById(R.id.weatherBox)
         weatherIcon = findViewById(R.id.weatherIcon)
         weatherText = findViewById(R.id.weatherText)
+        bannerStrip = findViewById(R.id.bannerStrip)
+        bannerRecycler = findViewById(R.id.bannerRecycler)
 
         appManager = AppManager(this)
         layoutPrefs = LayoutPrefs(this)
@@ -227,6 +232,7 @@ class MainActivity : AppCompatActivity() {
         setupRecyclerView()
         setupAllApps()
         setupTopApps()
+        setupBanners()
         setupClickListeners()
         applyIconLook()
         applyPalette()
@@ -354,29 +360,42 @@ class MainActivity : AppCompatActivity() {
             rowHeightPx = { allAppsRowHeightPx() },
             iconShape = { layoutPrefs.getIconShape() }
         )
+        // "Todos os apps" follows the same grid arrangement (columns x rows) as the home grid.
         allAppsList.layoutManager = GridLayoutManager(this, allAppsColumns())
         allAppsList.adapter = allAppsAdapter
         (allAppsList.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
     }
 
-    /** "All apps" is a compact list of two columns; its icons follow the global size bar. */
-    private fun allAppsColumns(): Int = ALL_APPS_COLUMNS
+    /** Same arrangement as the home grid, so the "arranjo de ícones" applies here too. */
+    private fun allAppsColumns(): Int = layoutPrefs.getColumns()
 
+    /** Tile height comes from the row arrangement; the column count only splits the row. */
     private fun allAppsRowHeightPx(): Int {
-        val density = resources.displayMetrics.density
-        val dp = (120f / allAppsColumns() + 20f).coerceIn(40f, 88f)
-        return (dp * density).toInt()
+        val rows = layoutPrefs.getRows().coerceAtLeast(1)
+        val available = allAppsAvailableHeightPx().coerceAtLeast(1)
+        return (available / rows.coerceAtMost(3)).coerceIn(
+            (40 * resources.displayMetrics.density).toInt(),
+            (170 * resources.displayMetrics.density).toInt()
+        )
+    }
+
+    private fun allAppsAvailableHeightPx(): Int {
+        val metrics = resources.displayMetrics
+        val density = metrics.density
+        return metrics.heightPixels -
+            (resources.getDimensionPixelSize(R.dimen.screen_margin_v) * 2) -
+            (72 * density).toInt() -
+            resources.getDimensionPixelSize(R.dimen.grid_padding) * 2
     }
 
     private fun allAppsIconSizePx(): Int {
-        val rowHeight = allAppsRowHeightPx()
-        val scaled = rowHeight * 0.62f * layoutPrefs.getIconScalePercent() / 100f
-        return scaled.toInt().coerceIn(1, rowHeight)
+        val tileHeight = allAppsRowHeightPx()
+        val scaled = tileHeight * 0.72f * layoutPrefs.getIconScalePercent() / 100f
+        return scaled.toInt().coerceIn(1, tileHeight)
     }
 
     /** Small horizontal row with the most used apps, shown above the grid of the first tab. */
-    private fun setupTopApps() {
-        val slotPx = (72 * resources.displayMetrics.density).toInt()
+    private fun setupTopApps() {        val slotPx = (72 * resources.displayMetrics.density).toInt()
         topAdapter = AppSlotAdapter(
             onPlusClick = { },
             onAppLongClick = { },
@@ -404,6 +423,45 @@ class MainActivity : AppCompatActivity() {
         topAppsLabel.visibility = visibility
     }
 
+    // ---- Banners: vídeos em alta do YouTube (aba Início) ----
+
+    private fun setupBanners() {
+        bannerAdapter = BannerAdapter { video ->
+            TvHomeOverrideService.pauseOverrideFor(5000)
+            val preferred = ContentBannerManager.playerPackage(this)
+            try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(video.videoUrl))
+                if (preferred.isNotEmpty()) intent.setPackage(preferred)
+                startActivity(intent)
+            } catch (_: Exception) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(video.videoUrl)))
+                } catch (_: Exception) {
+                    Toast.makeText(this, R.string.search_external_failed, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        bannerRecycler.layoutManager =
+            LinearLayoutManager(this, LinearLayoutManager.HORIZONTAL, false)
+        bannerRecycler.adapter = bannerAdapter
+        (bannerRecycler.itemAnimator as? SimpleItemAnimator)?.supportsChangeAnimations = false
+        loadBanners(force = false)
+    }
+
+    private fun loadBanners(force: Boolean) {
+        BannerFeed.load(this, force) { videos ->
+            if (isFinishing || isDestroyed) return@load
+            bannerAdapter.submitList(videos)
+            refreshBannerStrip()
+        }
+    }
+
+    /** The banner row lives under the grid, on the "Início" tab only. */
+    private fun refreshBannerStrip() {
+        val show = currentTab == TAB_HOME && !bannerAdapter.currentList.isEmpty()
+        bannerStrip.visibility = if (show) View.VISIBLE else View.GONE
+    }
+
     private fun buildSizing(columns: Int, rows: Int = layoutPrefs.getRows()): AppSlotAdapter.Sizing {
         return AppSlotAdapter.Sizing.forSlot(
             calculateSlotSizePx(columns),
@@ -422,6 +480,16 @@ class MainActivity : AppCompatActivity() {
         profileButton.setOnLongClickListener {
             profilePicker.launch("image/*")
             true
+        }
+        // Like Google TV: the avatar gets a visible accent ring/outline while it is selected.
+        profileButton.setOnFocusChangeListener { view, hasFocus ->
+            val density = resources.displayMetrics.density
+            view.elevation = if (hasFocus) 8f * density else 0f
+            view.animate()
+                .scaleX(if (hasFocus) 1.08f else 1f)
+                .scaleY(if (hasFocus) 1.08f else 1f)
+                .setDuration(90L)
+                .start()
         }
         weatherBox.setOnClickListener { showWeekForecast() }
     }
@@ -464,6 +532,9 @@ class MainActivity : AppCompatActivity() {
         appSlotAdapter.accentColor = entry.accent
         if (::topAdapter.isInitialized) {
             topAdapter.accentColor = entry.accent
+        }
+        if (::allAppsAdapter.isInitialized) {
+            allAppsAdapter.accentColor = entry.accent
         }
         auroraView.setPalette(entry)
         val effect = layoutPrefs.getScreenEffect()
@@ -515,45 +586,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Week forecast dialog, opened by clicking the weather in the header. */
+    /** Week forecast in cards, opened by clicking the weather in the header. */
     private fun showWeekForecast() {
-        val forecast = lastForecast ?: Weather.cached(this)
-        if (forecast == null) {
-            Toast.makeText(this, R.string.weather_unavailable, Toast.LENGTH_SHORT).show()
+        if (lastForecast == null && Weather.cached(this) == null) {
             refreshWeather(force = true)
-            return
         }
-        val lines = forecast.days.mapIndexed { index, day ->
-            val weekday = when (index) {
-                0 -> getString(R.string.weather_today)
-                1 -> getString(R.string.weather_tomorrow)
-                else -> {
-                    val label = Weather.weekdayLabel(day.isoDate)
-                    if (label.isEmpty()) label
-                    else label.substring(0, 1).uppercase() + label.substring(1)
-                }
+        WeatherForecastDialog.show(this) { forecast ->
+            if (forecast != null) {
+                lastForecast = forecast
+                lastWeatherUiRefresh = System.currentTimeMillis()
             }
-            val rain = if (day.rainPercent > 0) {
-                "  ·  " + getString(R.string.weather_rain_chance, day.rainPercent)
-            } else {
-                ""
-            }
-            getString(
-                R.string.weather_day_line,
-                weekday,
-                day.minC,
-                day.maxC,
-                Weather.conditionLabel(day.code)
-            ) + rain
         }
-        val dialog = AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
-            .setTitle(R.string.weather_week_title)
-            .setMessage(lines.joinToString("\n"))
-            .setPositiveButton(R.string.close, null)
-            .setNeutralButton(R.string.weather_refresh) { _, _ -> refreshWeather(force = true) }
-            .create()
-        styleDialog(dialog, widthFraction = 0.5f, maxWidthDp = 620)
-        dialog.show()
     }
 
     /**
@@ -598,7 +641,9 @@ class MainActivity : AppCompatActivity() {
                 lastGreeting = null
                 applyGreeting()
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showPhrasesMenuDialog() }
             .show()
     }
 
@@ -641,8 +686,9 @@ class MainActivity : AppCompatActivity() {
                 lastGreeting = null
                 applyGreeting()
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
             .create()
+            .backToMenu { showPhrasesMenuDialog() }
         dialog.window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE)
         dialog.show()
     }
@@ -750,6 +796,7 @@ class MainActivity : AppCompatActivity() {
             tabScroll.post { tabScroll.smoothScrollTo((tab.left - tabScroll.width / 3).coerceAtLeast(0), 0) }
         }
         refreshTopApps()
+        refreshBannerStrip()
         applyGridForTab()
         appSlots.visibility = View.GONE
         allAppsList.visibility = View.GONE
@@ -1202,7 +1249,9 @@ class MainActivity : AppCompatActivity() {
                 HiddenApps.clear(this)
                 refreshContent(lastFocusedKey, requestFocus = false)
             }
-            .setNegativeButton(R.string.close, null)
+            .setNegativeButton(R.string.close) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showAdvancedSettingsDialog() }
             .show()
     }
 
@@ -1499,34 +1548,27 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Settings of the launcher (icon size, greeting, wallpaper, accessibility...) ----
 
+    /**
+     * Marks a dialog as a submenu: when the user presses BACK, the previous menu opens again
+     * instead of closing all menus. "Cancelar/Fechar" buttons still close everything, because
+     * they call dismiss (no cancel event); BACK is the only thing that fires the cancel listener.
+     */
+    private fun AlertDialog.backToMenu(parent: () -> Unit): AlertDialog {
+        setOnCancelListener {
+            if (!isFinishing && !isDestroyed) parent()
+        }
+        return this
+    }
+
+    /** Items of the launcher settings menu. */
     private fun showCustomizeDialog() {
         val options = mutableListOf<String>()
         val actions = mutableListOf<() -> Unit>()
 
-        options.add(getString(R.string.customize_icon_size))
-        actions.add { showIconSizeDialog() }
-        options.add(getString(R.string.customize_grid_arrangement))
-        actions.add { showGridDialog() }
-        options.add(getString(R.string.customize_icon_shape))
-        actions.add { showIconShapeDialog() }
-        options.add(getString(R.string.customize_greeting_size))
-        actions.add { showGreetingSizeDialog() }
-        options.add(getString(R.string.customize_palette))
-        actions.add { showPaletteDialog() }
-        options.add(getString(R.string.customize_screen_effect, effectLabel(layoutPrefs.getScreenEffect())))
-        actions.add { showScreenEffectDialog() }
-        options.add(stateLabel(R.string.customize_auto_messages, layoutPrefs.isAutoMessagesEnabled()))
-        actions.add {
-            layoutPrefs.setAutoMessagesEnabled(!layoutPrefs.isAutoMessagesEnabled())
-            lastGreeting = null
-            applyGreeting()
-        }
-        options.add(getString(R.string.customize_message_interval))
-        actions.add { showMessageIntervalDialog() }
-        options.add(getString(R.string.customize_message_kinds))
-        actions.add { showMessageKindsDialog() }
-        options.add(getString(R.string.customize_message_target))
-        actions.add { showMessageTargetDialog() }
+        options.add(getString(R.string.customize_screen_group))
+        actions.add { showScreenMenuDialog() }
+        options.add(getString(R.string.customize_phrases_group))
+        actions.add { showPhrasesMenuDialog() }
         options.add(stateLabel(R.string.customize_weather, layoutPrefs.isWeatherEnabled()))
         actions.add {
             layoutPrefs.setWeatherEnabled(!layoutPrefs.isWeatherEnabled())
@@ -1538,8 +1580,6 @@ class MainActivity : AppCompatActivity() {
             refreshTopApps()
             applyGridForTab()
         }
-        options.add(getString(R.string.customize_wallpaper))
-        actions.add { showWallpaperDialog() }
         options.add(getString(R.string.customize_sort_az))
         actions.add { sortAppsAlphabetically() }
         // Accessibility, backups, memory, logs and cache all live in the advanced settings now.
@@ -1554,10 +1594,73 @@ class MainActivity : AppCompatActivity() {
                     actions.getOrNull(which)?.invoke()
                 }
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
             .create()
+            .backToMenu { }
         styleDialog(dialog, widthFraction = 0.46f, maxWidthDp = 620, heightFraction = 0.82f)
         dialog.show()
+    }
+
+    /** Screen-related settings grouped in a sub menu (like "Configuração avançada"). */
+    private fun showScreenMenuDialog() {
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+
+        options.add(getString(R.string.customize_icon_size))
+        actions.add { showIconSizeDialog() }
+        options.add(getString(R.string.customize_grid_arrangement))
+        actions.add { showGridDialog() }
+        options.add(getString(R.string.customize_icon_shape))
+        actions.add { showIconShapeDialog() }
+        options.add(getString(R.string.customize_palette))
+        actions.add { showPaletteDialog() }
+        options.add(getString(R.string.customize_screen_effect, effectLabel(layoutPrefs.getScreenEffect())))
+        actions.add { showScreenEffectDialog() }
+        options.add(getString(R.string.customize_wallpaper))
+        actions.add { showWallpaperDialog() }
+
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_screen_group_title)
+            .setItems(options.toTypedArray()) { _, which ->
+                actions.getOrNull(which)?.invoke()
+            }
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showCustomizeDialog() }
+            .show()
+    }
+
+    /** Phrase/message settings grouped in a sub menu (like "Configuração avançada"). */
+    private fun showPhrasesMenuDialog() {
+        val options = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+
+        options.add(getString(R.string.customize_greeting_text))
+        actions.add { showGreetingTextDialog() }
+        options.add(getString(R.string.customize_greeting_size))
+        actions.add { showGreetingSizeDialog() }
+        options.add(stateLabel(R.string.customize_auto_messages, layoutPrefs.isAutoMessagesEnabled()))
+        actions.add {
+            layoutPrefs.setAutoMessagesEnabled(!layoutPrefs.isAutoMessagesEnabled())
+            lastGreeting = null
+            applyGreeting()
+        }
+        options.add(getString(R.string.customize_message_interval))
+        actions.add { showMessageIntervalDialog() }
+        options.add(getString(R.string.customize_message_kinds))
+        actions.add { showMessageKindsDialog() }
+        options.add(getString(R.string.customize_message_target))
+        actions.add { showMessageTargetDialog() }
+
+        AlertDialog.Builder(this, R.style.Theme_TVLauncher_AboutDialog)
+            .setTitle(R.string.customize_phrases_group_title)
+            .setItems(options.toTypedArray()) { _, which ->
+                actions.getOrNull(which)?.invoke()
+            }
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showCustomizeDialog() }
+            .show()
     }
 
     private fun effectLabel(id: Int): String = getString(ScreenEffect.of(id).nameRes)
@@ -1581,7 +1684,9 @@ class MainActivity : AppCompatActivity() {
                 CrashLog.log(this, "Efeito de tela: ${effectLabel(id)}")
                 dialog.dismiss()
             }
-            .setNegativeButton(R.string.close, null)
+            .setNegativeButton(R.string.close) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showScreenMenuDialog() }
             .show()
     }
 
@@ -1649,8 +1754,9 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton(R.string.apply) { _, _ ->
                 applyIconScale(percent())
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
             .create()
+            .backToMenu { showScreenMenuDialog() }
         styleDialog(dialog, widthFraction = 0.44f, maxWidthDp = 620)
         dialog.show()
     }
@@ -1729,8 +1835,9 @@ class MainActivity : AppCompatActivity() {
                 refreshAllAppsGrid()
                 refreshContent(lastFocusedKey, requestFocus = false)
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
             .create()
+            .backToMenu { showScreenMenuDialog() }
         styleDialog(dialog, widthFraction = 0.44f, maxWidthDp = 620)
         dialog.show()
     }
@@ -1758,7 +1865,9 @@ class MainActivity : AppCompatActivity() {
                 layoutPrefs.setIconShape(which)
                 applyIconLook()
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showScreenMenuDialog() }
             .show()
     }
 
@@ -1771,7 +1880,9 @@ class MainActivity : AppCompatActivity() {
                 layoutPrefs.setPalette(which)
                 applyPalette()
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showScreenMenuDialog() }
             .show()
     }
 
@@ -1795,7 +1906,9 @@ class MainActivity : AppCompatActivity() {
                 lastGreeting = null
                 applyGreeting()
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showPhrasesMenuDialog() }
             .show()
     }
 
@@ -1823,9 +1936,10 @@ class MainActivity : AppCompatActivity() {
                 lastGreeting = null
                 applyGreeting()
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
             .create()
         styleDialog(dialog)
+        dialog.backToMenu { showPhrasesMenuDialog() }
         dialog.show()
     }
 
@@ -1841,7 +1955,9 @@ class MainActivity : AppCompatActivity() {
                 lastGreeting = null
                 applyGreeting()
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showPhrasesMenuDialog() }
             .show()
     }
 
@@ -2184,8 +2300,9 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-            .setNegativeButton(R.string.cancel, null)
+            .setNegativeButton(R.string.cancel) { d, _ -> d.dismiss() }
             .create()
+            .backToMenu { showScreenMenuDialog() }
         styleDialog(
             wallpaperDialog,
             widthFraction = 0.48f,
@@ -2310,7 +2427,9 @@ class MainActivity : AppCompatActivity() {
                     checkForUpdatesManually()
                 }
             }
-            .setNegativeButton(R.string.close, null)
+            .setNegativeButton(R.string.close) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showAdvancedSettingsDialog() }
             .show()
     }
 
@@ -2588,7 +2707,7 @@ class MainActivity : AppCompatActivity() {
         val ramText = dialogView.findViewById<TextView>(R.id.sysRamText)
         val ramBar = dialogView.findViewById<ProgressBar>(R.id.sysRamBar)
         val cpuText = dialogView.findViewById<TextView>(R.id.sysCpuText)
-        val appsContainer = dialogView.findViewById<LinearLayout>(R.id.sysAppsContainer)
+        val trafficText = dialogView.findViewById<TextView>(R.id.sysTrafficText)
         val networkText = dialogView.findViewById<TextView>(R.id.sysNetworkText)
         val storageText = dialogView.findViewById<TextView>(R.id.sysStorageText)
         val storageBar = dialogView.findViewById<ProgressBar>(R.id.sysStorageBar)
@@ -2601,6 +2720,32 @@ class MainActivity : AppCompatActivity() {
             .setNeutralButton(R.string.dashboard_refresh) { _, _ -> showSystemDashboard() }
             .create()
         styleDialog(dialog, widthFraction = 0.6f, maxWidthDp = 860, heightFraction = 0.85f)
+
+        // Instantaneous traffic: samples the TrafficStats counters every second while the
+        // dialog is open and shows the speed next to the monthly totals.
+        var lastRx = SystemStats.rawTrafficBytes().first
+        var lastTx = SystemStats.rawTrafficBytes().second
+        var lastTickMs = System.currentTimeMillis()
+        val trafficTicker = object : Runnable {
+            override fun run() {
+                if (!dialog.isShowing) return
+                val (rx, tx) = SystemStats.rawTrafficBytes()
+                val now = System.currentTimeMillis()
+                val seconds = ((now - lastTickMs) / 1000.0).coerceAtLeast(0.5)
+                val rxSpeed = ((rx - lastRx).coerceAtLeast(0L) / seconds).toLong()
+                val txSpeed = ((tx - lastTx).coerceAtLeast(0L) / seconds).toLong()
+                lastRx = rx
+                lastTx = tx
+                lastTickMs = now
+                trafficText.text = getString(
+                    R.string.dashboard_now_traffic,
+                    speedPerSecond(rxSpeed),
+                    speedPerSecond(txSpeed)
+                )
+                mainHandler.postDelayed(this, DASHBOARD_TRAFFIC_TICK_MS)
+            }
+        }
+        dialog.setOnDismissListener { mainHandler.removeCallbacks(trafficTicker) }
 
         fun render(snapshot: SystemStats.Snapshot) {
             if (isFinishing || isDestroyed) return
@@ -2620,64 +2765,6 @@ class MainActivity : AppCompatActivity() {
             )
             cpuText.text = getString(R.string.dashboard_cpu_value, snapshot.cpuPercent)
 
-            appsContainer.removeAllViews()
-            if (snapshot.apps.isEmpty()) {
-                appsContainer.addView(TextView(this).apply {
-                    text = getString(R.string.dashboard_apps_hidden)
-                    setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
-                    textSize = 12f
-                })
-            } else {
-                val density = resources.displayMetrics.density
-                snapshot.apps.forEach { usage ->
-                    val row = LinearLayout(this).apply {
-                        orientation = LinearLayout.HORIZONTAL
-                        gravity = android.view.Gravity.CENTER_VERTICAL
-                        setPadding(0, (5 * density).toInt(), 0, (5 * density).toInt())
-                    }
-                    val dot = View(this).apply {
-                        background = android.graphics.drawable.GradientDrawable().apply {
-                            shape = android.graphics.drawable.GradientDrawable.OVAL
-                            setColor(SystemStats.colorForPercent(this@MainActivity, usage.percent))
-                        }
-                        layoutParams = LinearLayout.LayoutParams(
-                            (10 * density).toInt(),
-                            (10 * density).toInt()
-                        )
-                    }
-                    val label = TextView(this).apply {
-                        text = usage.label
-                        setTextColor(ContextCompat.getColor(context, R.color.text_primary))
-                        textSize = 14f
-                        maxLines = 1
-                        ellipsize = android.text.TextUtils.TruncateAt.END
-                        layoutParams = LinearLayout.LayoutParams(
-                            0,
-                            LinearLayout.LayoutParams.WRAP_CONTENT,
-                            1f
-                        )
-                        setPadding((10 * density).toInt(), 0, (8 * density).toInt(), 0)
-                    }
-                    val value = TextView(this).apply {
-                        text = if (usage.memoryBytes > 0) {
-                            getString(
-                                R.string.dashboard_app_usage,
-                                usage.percent,
-                                SystemStats.formatBytes(usage.memoryBytes)
-                            )
-                        } else {
-                            getString(R.string.dashboard_app_usage_short, usage.percent)
-                        }
-                        setTextColor(SystemStats.colorForPercent(context, usage.percent))
-                        textSize = 13f
-                    }
-                    row.addView(dot)
-                    row.addView(label)
-                    row.addView(value)
-                    appsContainer.addView(row)
-                }
-            }
-
             val net = snapshot.network
             networkText.text = if (!net.connected) {
                 getString(R.string.dashboard_network_offline)
@@ -2693,8 +2780,8 @@ class MainActivity : AppCompatActivity() {
                     type,
                     net.name,
                     net.ip.ifEmpty { "-" },
-                    SystemStats.formatBytes(net.rxBytes),
-                    SystemStats.formatBytes(net.txBytes)
+                    SystemStats.formatBytes(net.monthRxBytes),
+                    SystemStats.formatBytes(net.monthTxBytes)
                 )
             }
 
@@ -2715,11 +2802,24 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
+        mainHandler.postDelayed(trafficTicker, DASHBOARD_TRAFFIC_TICK_MS)
         dialog.show()
         Thread {
             val snapshot = SystemStats.snapshot(applicationContext)
             runOnUiThread { render(snapshot) }
         }.start()
+    }
+
+    /** Human readable per-second traffic for the dashboard ("1,2 MB", "870 KB"...). */
+    private fun speedPerSecond(bytesPerSecond: Long): String {
+        return when {
+            bytesPerSecond >= 1024L * 1024L ->
+                String.format(Locale.US, "%.1f MB", bytesPerSecond / (1024f * 1024f))
+            bytesPerSecond >= 1024L ->
+                String.format(Locale.US, "%.0f KB", bytesPerSecond / 1024f)
+            else ->
+                "$bytesPerSecond B"
+        }
     }
 
     // ---- Advanced settings ----
@@ -2820,7 +2920,9 @@ class MainActivity : AppCompatActivity() {
             .setItems(options.toTypedArray()) { _, which ->
                 actions.getOrNull(which)?.invoke()
             }
-            .setNegativeButton(R.string.close, null)
+            .setNegativeButton(R.string.close) { d, _ -> d.dismiss() }
+            .create()
+            .backToMenu { showAdvancedSettingsDialog() }
             .show()
     }
 
@@ -2927,9 +3029,10 @@ class MainActivity : AppCompatActivity() {
                 CrashLog.clear(this)
                 Toast.makeText(this, R.string.event_log_cleared, Toast.LENGTH_SHORT).show()
             }
-            .setNegativeButton(R.string.close, null)
+            .setNegativeButton(R.string.close) { d, _ -> d.dismiss() }
             .create()
         styleDialog(dialog, widthFraction = 0.62f, maxWidthDp = 960, heightFraction = 0.85f)
+        dialog.backToMenu { showAdvancedSettingsDialog() }
         dialog.show()
     }
 
@@ -3102,6 +3205,8 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         loadHomeInfos()
         refreshTopApps()
+        refreshBannerStrip()
+        loadBanners(force = false)
         val grabFocus = currentFocus == null || appSlots.hasFocus() || allAppsList.hasFocus()
         refreshContent(lastFocusedKey, requestFocus = grabFocus)
         applyWallpaper(force = false)
@@ -3147,11 +3252,11 @@ class MainActivity : AppCompatActivity() {
         private const val TAB_ALL = "tab:all"
         private const val TAB_NEW = "tab:new"
         private const val TOP_APPS_LIMIT = 6
-
-        /** "All apps" is a compact list, so it allows fewer columns than the home grid. */
-        private const val ALL_APPS_COLUMNS = 2
         private const val WALLPAPER_CHECK_MS = 15_000L
         private const val WEATHER_UI_REFRESH_MS = 30 * 60 * 1000L
+
+        /** Every second the dashboard samples the traffic counters to show the speed. */
+        private const val DASHBOARD_TRAFFIC_TICK_MS = 1_000L
 
         /** Holding OK on the Home key for this long opens the running apps. */
         const val HOME_LONG_PRESS_MS = 700L

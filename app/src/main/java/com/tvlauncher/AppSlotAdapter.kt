@@ -275,8 +275,9 @@ class AppSlotAdapter(
     }
 
     /**
-     * Focus look without a card: a soft rounded glow behind the icon (no border, no zoom and no
-     * shadow). The name of the app only shows up while the tile is focused.
+     * Focus look in the Google TV style: the focused tile becomes a rounded card with the accent
+     * colour — a soft fill, a solid border and a gentle border glow — and grows a few percent
+     * towards the user. The name of the app only shows up while the tile is focused.
      */
     private fun applyFocusLook(
         holder: AppSlotViewHolder,
@@ -287,27 +288,42 @@ class AppSlotAdapter(
         val density = holder.itemView.resources.displayMetrics.density
         val accent = accentColor
         val highlighted = focused || moving
-        val alpha = when {
-            moving -> 0x66
-            focused -> 0x3D
-            else -> 0x00
-        }
+        val radius = 22 * density
         val background = GradientDrawable().apply {
-            cornerRadius = 18 * density
-            setColor(
-                Color.argb(
-                    alpha,
-                    Color.red(accent),
-                    Color.green(accent),
-                    Color.blue(accent)
-                )
-            )
-            if (moving) {
-                setStroke((2 * density).toInt(), accent)
+            cornerRadius = radius
+            when {
+                moving -> {
+                    setColor(0x38222222)
+                    setStroke((3 * density).toInt(), accent)
+                }
+                focused -> {
+                    // Soft accent fill + solid accent border, like the reference card style.
+                    setColor(
+                        Color.argb(
+                            0x2E,
+                            Color.red(accent),
+                            Color.green(accent),
+                            Color.blue(accent)
+                        )
+                    )
+                    setStroke((3 * density).toInt(), accent)
+                }
+                else -> {
+                    // Unfocused tiles stay clean: no card, no border, just the icon.
+                    setColor(Color.TRANSPARENT)
+                }
             }
         }
         holder.itemView.background = background
-        holder.itemView.elevation = 0f
+        holder.itemView.elevation = if (highlighted) 10f * density else 0f
+        val targetScale = if (highlighted) 1.05f else 1f
+        if (java.lang.Math.abs(holder.itemView.scaleX - targetScale) > 0.001f) {
+            holder.itemView.animate()
+                .scaleX(targetScale)
+                .scaleY(targetScale)
+                .setDuration(90L)
+                .start()
+        }
         if (!slot.isEmpty) {
             holder.appName.visibility = if (highlighted) View.VISIBLE else View.INVISIBLE
         }

@@ -1,17 +1,17 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!-- Strings added in version 4.0 (search, avatar dashboard, advanced settings, recents). -->
 <resources>
     <string name="apply">Aplicar</string>
 
     <!-- Sobre -->
     <string name="about_version">Versão %1$s</string>
-    <string name="search_apps">Buscar apps</string>
+    <string name="search_apps">Pesquisar</string>
     <string name="pin_locked">Muitas tentativas erradas. Aguarde %1$d segundos e tente de novo.</string>
     <string name="wallpaper_https_only">Por segurança, o link do papel de parede precisa começar com https://.</string>
 
     <!-- Busca de apps -->
-    <string name="search_apps_hint">Digite o nome do app</string>
-    <string name="search_title">Buscar apps</string>
+    <string name="search_apps_hint">o que você deseja encontrar?</string>
+    <string name="search_title">Pesquisar</string>
     <string name="search_suggestions">Sugestões</string>
     <string name="search_no_results">Nenhum app encontrado com esse nome.</string>
     <string name="search_results_count">%1$d apps encontrados</string>
@@ -34,17 +34,13 @@
     <string name="dashboard_memory">MEMÓRIA RAM</string>
     <string name="dashboard_ram_value">%1$s de %2$s em uso · %3$s livre (%4$d%%)</string>
     <string name="dashboard_cpu_value">Processador da TV: %1$d%% em uso</string>
-    <string name="dashboard_apps">APPS QUE MAIS CONSOMEM AGORA</string>
-    <string name="dashboard_apps_hidden">Esta TV não mostra o consumo de outros apps. A lista acima usa os apps mais abertos pela launcher.</string>
-    <string name="dashboard_app_usage">%1$d%% · %2$s</string>
-    <string name="dashboard_app_usage_short">%1$d%% de uso</string>
     <string name="dashboard_network">CONEXÃO</string>
     <string name="dashboard_network_offline">Sem conexão no momento.</string>
     <string name="dashboard_network_wifi">Wi-Fi</string>
     <string name="dashboard_network_ethernet">Cabo</string>
     <string name="dashboard_network_mobile">Dados móveis</string>
     <string name="dashboard_network_other">Outra</string>
-    <string name="dashboard_network_value">%1$s · %2$s\nIP: %3$s\nRecebido: %4$s · Enviado: %5$s</string>
+    <string name="dashboard_network_value">%1$s • %2$s\nIP: %3$s\nNo mês: recebido %4$s • enviado %5$s</string>
     <string name="dashboard_storage">ARMAZENAMENTO INTERNO</string>
     <string name="dashboard_storage_value">Total: %1$s · Em uso: %2$s · Livre: %3$s (%4$d%% usado)</string>
     <string name="dashboard_refresh">Atualizar</string>
@@ -122,4 +118,11 @@
     <!-- Papel de parede: fotos escolhidas quando a TV não tem seletor de pastas -->
     <string name="wallpaper_photos_saved">%1$d fotos salvas. O papel de parede vai alternar entre elas.</string>
     <string name="wallpaper_photos_selected_count">%1$d fotos escolhidas</string>
+    <string name="dashboard_now_traffic">Agora: recebe %1$s / envia %2$s por segundo</string>
+    <string name="customize_screen_group">Tela e aparência</string>
+    <string name="customize_screen_group_title">Tela</string>
+    <string name="customize_phrases_group">Frases e mensagens</string>
+    <string name="customize_phrases_group_title">Frases</string>
+    <string name="banner_title">EM ALTA NO YOUTUBE</string>
+
 </resources>

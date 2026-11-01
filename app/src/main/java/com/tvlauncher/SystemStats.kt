@@ -1,44 +1,38 @@
-package com.tvlauncher
+﻿package com.tvlauncher
 
 import android.app.ActivityManager
 import android.content.Context
-import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.TrafficStats
 import android.os.Build
 import android.os.Environment
-import android.os.Process
 import android.os.StatFs
 import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
 /**
- * Reads the numbers shown in the profile dashboard: memory, processor, the apps using the most
- * memory, the network (Wi-Fi or cable, name, IP and traffic) and the internal storage.
+ * Reads the numbers shown in the profile dashboard: memory, processor, the connection
+ * (type, network name, IP, the totals of the current month) and the internal storage.
  *
- * Everything is read-only and stays on the device. Per-app CPU time is not available to a normal
- * app on recent Android versions (the system hides it), so the per-app section ranks apps by
- * memory and the processor section shows the total load of the TV.
+ * Everything is read-only and stays on the device. The "apps that use the most memory" list was
+ * removed: TV system builds hide per-app usage from normal apps, so that ranking was always
+ * incomplete and misleading. The processor section shows the total load of the TV.
  */
 object SystemStats {
-
-    data class AppUsage(
-        val label: String,
-        val packageName: String,
-        val memoryBytes: Long,
-        /** 0..100 share of the used memory (or of the recent usage when memory is hidden). */
-        val percent: Int
-    )
 
     data class NetworkInfo(
         val connected: Boolean,
         val type: String,
         val name: String,
         val ip: String,
+        /** Counters since the TV boot; used to compute the instantaneous speed in the dialog. */
         val rxBytes: Long,
-        val txBytes: Long
+        val txBytes: Long,
+        /** Totals already used in the current month (baseline reset at every month and reboot). */
+        val monthRxBytes: Long,
+        val monthTxBytes: Long
     )
 
     data class StorageInfo(val totalBytes: Long, val usedBytes: Long, val freeBytes: Long)
@@ -48,10 +42,15 @@ object SystemStats {
         val ramUsedBytes: Long,
         val ramAvailableBytes: Long,
         val cpuPercent: Int,
-        val apps: List<AppUsage>,
         val network: NetworkInfo,
         val storage: StorageInfo
     )
+
+    /** Raw TrafficStats counters, used to sample the instantaneous speed in the dialog. */
+    fun rawTrafficBytes(): Pair<Long, Long> {
+        return TrafficStats.getTotalRxBytes().coerceAtLeast(0L) to
+            TrafficStats.getTotalTxBytes().coerceAtLeast(0L)
+    }
 
     /** Reads everything; call it from a background thread because the CPU sample waits. */
     fun snapshot(context: Context): Snapshot {
@@ -62,7 +61,6 @@ object SystemStats {
             ramUsedBytes = memory.second,
             ramAvailableBytes = memory.third,
             cpuPercent = cpuUsagePercent(),
-            apps = topApps(appContext, memory.second),
             network = networkInfo(appContext),
             storage = storageInfo()
         )
@@ -109,83 +107,6 @@ object SystemStats {
         }
     }
 
-    private fun topApps(context: Context, usedBytes: Long): List<AppUsage> {
-        val byProcess = topAppsByProcess(context, usedBytes)
-        if (byProcess.isNotEmpty()) return byProcess
-        // Some TVs hide the process list from normal apps. Fall back to the launcher's own
-        // usage counter, which still tells which apps were opened the most.
-        return topAppsByUsage(context)
-    }
-
-    private fun topAppsByProcess(context: Context, usedBytes: Long): List<AppUsage> {
-        return try {
-            val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-            val pm = context.packageManager
-            val processes = am.runningAppProcesses ?: return emptyList()
-            val perPackage = LinkedHashMap<String, Long>()
-            processes.forEach { process ->
-                if (process.pid == Process.myPid()) return@forEach
-                if (process.importance > ActivityManager.RunningAppProcessInfo.IMPORTANCE_SERVICE) {
-                    return@forEach
-                }
-                val pkg = process.pkgList?.firstOrNull() ?: return@forEach
-                if (pkg == context.packageName) return@forEach
-                val memory = try {
-                    am.getProcessMemoryInfo(intArrayOf(process.pid))
-                        .firstOrNull()?.totalPss?.toLong() ?: 0L
-                } catch (_: Exception) {
-                    0L
-                }
-                perPackage[pkg] = (perPackage[pkg] ?: 0L) + memory * 1024L
-            }
-            val base = if (usedBytes > 0) usedBytes else perPackage.values.sum().coerceAtLeast(1L)
-            perPackage.entries
-                .sortedByDescending { it.value }
-                .take(4)
-                .map { (pkg, bytes) ->
-                    AppUsage(
-                        label = appLabel(pm, pkg),
-                        packageName = pkg,
-                        memoryBytes = bytes,
-                        percent = ((bytes * 100) / base).toInt().coerceIn(0, 100)
-                    )
-                }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun topAppsByUsage(context: Context): List<AppUsage> {
-        return try {
-            val installed = AppManager(context).getInstalledApps().associateBy { it.packageName }
-            val counts = context.getSharedPreferences("usage_counts", Context.MODE_PRIVATE)
-            val ranked = counts.all.entries
-                .mapNotNull { (key, value) -> (value as? Int)?.let { key to it } }
-                .sortedByDescending { it.second }
-                .take(4)
-            val max = ranked.maxOfOrNull { it.second }?.coerceAtLeast(1) ?: return emptyList()
-            ranked.mapNotNull { (key, count) ->
-                val pkg = AppIdentifier.decode(key)?.packageName ?: return@mapNotNull null
-                AppUsage(
-                    label = installed[pkg]?.getDisplayName() ?: appLabel(context.packageManager, pkg),
-                    packageName = pkg,
-                    memoryBytes = 0L,
-                    percent = ((count * 100) / max).coerceIn(0, 100)
-                )
-            }
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
-    private fun appLabel(pm: PackageManager, packageName: String): String {
-        return try {
-            pm.getApplicationLabel(pm.getApplicationInfo(packageName, 0)).toString()
-        } catch (_: Exception) {
-            packageName
-        }
-    }
-
     private fun networkInfo(context: Context): NetworkInfo {
         var connected = false
         var type = "offline"
@@ -216,14 +137,52 @@ object SystemStats {
             }
         } catch (_: Exception) {
         }
+        val rx = TrafficStats.getTotalRxBytes().coerceAtLeast(0L)
+        val tx = TrafficStats.getTotalTxBytes().coerceAtLeast(0L)
         return NetworkInfo(
             connected = connected,
             type = type,
             name = name,
             ip = localIpAddress(),
-            rxBytes = TrafficStats.getTotalRxBytes().coerceAtLeast(0L),
-            txBytes = TrafficStats.getTotalTxBytes().coerceAtLeast(0L)
+            rxBytes = rx,
+            txBytes = tx,
+            monthRxBytes = monthBytes(context, rx, true),
+            monthTxBytes = monthBytes(context, tx, false)
         )
+    }
+
+    /**
+     * Monthly counter: TrafficStats only knows the totals since the connection went up, so the
+     * baseline of the month is stored locally and subtracted. When the system counter restarts
+     * (TV rebooted before the month ends) the baseline is re-centred so the number never goes
+     * negative, and a new month resets the countdown automatically.
+     */
+    private fun monthBytes(context: Context, current: Long, isRx: Boolean): Long {
+        val monthKey = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.US)
+            .format(java.util.Date())
+        return try {
+            val prefs = context.getSharedPreferences("traffic_month", Context.MODE_PRIVATE)
+            val key = if (isRx) "base_rx" else "base_tx"
+            if (prefs.getString("month", null) != monthKey) {
+                prefs.edit()
+                    .putString("month", monthKey)
+                    .putLong("base_rx", TrafficStats.getTotalRxBytes().coerceAtLeast(0L))
+                    .putLong("base_tx", TrafficStats.getTotalTxBytes().coerceAtLeast(0L))
+                    .apply()
+            } else if (!prefs.contains(key)) {
+                prefs.edit().putLong(key, current).apply()
+            }
+            val base = prefs.getLong(key, current)
+            if (current < base) {
+                // The system counter restarted (reboot): re-centre so the month total stays sane.
+                prefs.edit().putLong(key, current).apply()
+                0L
+            } else {
+                current - base
+            }
+        } catch (_: Exception) {
+            0L
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -256,11 +215,7 @@ object SystemStats {
 
     private fun storageInfo(): StorageInfo {
         return try {
-            val stat = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
-                StatFs(Environment.getDataDirectory().absolutePath)
-            } else {
-                StatFs(Environment.getDataDirectory().absolutePath)
-            }
+            val stat = StatFs(Environment.getDataDirectory().absolutePath)
             val total = stat.blockCountLong * stat.blockSizeLong
             val free = stat.availableBlocksLong * stat.blockSizeLong
             StorageInfo(total, total - free, free)

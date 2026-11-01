@@ -1,5 +1,6 @@
 package com.tvlauncher
 
+import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.LayoutInflater
@@ -12,23 +13,32 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 
 /**
- * Minimal list of every installed app: icon, name and where the app is on the home screen
- * (category name, or "not added"). Selecting a row opens the actions for that app.
+ * "Todos os apps" in the Google TV tile style: every app is a rounded card with the icon taking
+ * most of it and NO name below — the name (and where the app goes) only appears on focus.
+ * The grid arrangement follows the same columns/rows selected for the home grid.
  */
 class AllAppsAdapter(
     private val onClick: (Row) -> Unit,
     private val onLongClick: (Row) -> Unit,
     private val iconSizePx: () -> Int,
-    /** Height of one row: the "All apps" tab has its own icon size, chosen with a bar. */
+    /** Height of one tile: follows the row arrangement of the grid. */
     private val rowHeightPx: () -> Int = { 0 },
     private val iconShape: () -> Int = { IconShapes.DEFAULT }
 ) : ListAdapter<AllAppsAdapter.Row, AllAppsAdapter.ViewHolder>(DIFF_CALLBACK) {
+
+    /** Focus colour, taken from the chosen palette (see [Palette]). */
+    var accentColor: Int = Palette.accent(Palette.DEFAULT)
+        set(value) {
+            if (field == value) return
+            field = value
+            notifyDataSetChanged()
+        }
 
     /**
      * @property app the installed app
      * @property id identifier used on the home screen (see [AppIdentifier])
      * @property added true when the app is on the home screen
-     * @property status text under the name (category name or "not added")
+     * @property status shown under the name while the tile is focused
      */
     data class Row(
         val app: AppInfo,
@@ -41,7 +51,6 @@ class AllAppsAdapter(
         val icon: ImageView = itemView.findViewById(R.id.rowIcon)
         val name: TextView = itemView.findViewById(R.id.rowName)
         val status: TextView = itemView.findViewById(R.id.rowStatus)
-        val check: TextView = itemView.findViewById(R.id.rowCheck)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -51,25 +60,20 @@ class AllAppsAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val row = getItem(position)
-        val height = rowHeightPx()
+        val height = rowHeightPx().coerceAtLeast(1)
         if (height > 0) {
             holder.itemView.layoutParams = holder.itemView.layoutParams.apply {
                 this.height = height
             }
-            val scale = height / (56f * holder.itemView.resources.displayMetrics.density)
-            holder.name.setTextSize(
-                TypedValue.COMPLEX_UNIT_SP,
-                (13f * scale).coerceIn(10f, 18f)
-            )
-            holder.status.setTextSize(
-                TypedValue.COMPLEX_UNIT_SP,
-                (10f * scale).coerceIn(9f, 14f)
-            )
+            val scale = (height / (140f * holder.itemView.resources.displayMetrics.density))
+                .coerceIn(0.8f, 1.8f)
+            holder.name.setTextSize(TypedValue.COMPLEX_UNIT_SP, (13f * scale).coerceIn(10f, 20f))
+            holder.status.setTextSize(TypedValue.COMPLEX_UNIT_SP, (10f * scale).coerceIn(9f, 15f))
         }
         holder.name.text = row.app.getDisplayName()
         holder.status.text = row.status
-        holder.check.visibility = if (row.added) View.VISIBLE else View.GONE
-        val iconPx = iconSizePx()
+
+        val iconPx = iconSizePx().coerceAtLeast(1)
         holder.icon.layoutParams = holder.icon.layoutParams.apply {
             width = iconPx
             this.height = iconPx
@@ -91,6 +95,27 @@ class AllAppsAdapter(
         holder.icon.setImageDrawable(
             row.app.getIcon(holder.itemView.context.packageManager, iconPx)
         )
+
+        // Same focus look as the home grid: accent border card, name appears on focus.
+        val density = holder.itemView.resources.displayMetrics.density
+        fun applyFocus() {
+            val focused = holder.itemView.isFocused
+            holder.itemView.background = GradientDrawable().apply {
+                cornerRadius = 22 * density
+                if (focused) {
+                    setColor(0x2E000000)
+                    setStroke((3 * density).toInt(), accentColor)
+                } else {
+                    setColor(Color.TRANSPARENT)
+                }
+            }
+            holder.name.visibility = if (focused) View.VISIBLE else View.INVISIBLE
+            holder.status.visibility = if (focused) View.VISIBLE else View.INVISIBLE
+            holder.itemView.elevation = if (focused) 8f * density else 0f
+        }
+        holder.itemView.setOnFocusChangeListener { _, _ -> applyFocus() }
+        applyFocus()
+
         holder.itemView.setOnClickListener {
             val pos = holder.bindingAdapterPosition
             if (pos != RecyclerView.NO_POSITION) {

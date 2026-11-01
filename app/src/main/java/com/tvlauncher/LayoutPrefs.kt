@@ -269,16 +269,16 @@ class LayoutPrefs(context: Context) {
     }
 
     companion object {
-        const val DEFAULT_COLUMNS = 5
+        const val DEFAULT_COLUMNS = 8
         const val MIN_COLUMNS = 2
         const val MAX_COLUMNS = 15
 
         /** Range of the global icon size, in percent of the base size. */
         const val DEFAULT_ICON_SCALE = 100
         const val MIN_ICON_SCALE = 60
-        const val MAX_ICON_SCALE = 130
+        const val MAX_ICON_SCALE = 200
 
-        const val DEFAULT_ROWS = 3
+        const val DEFAULT_ROWS = 5
         const val MIN_ROWS = 1
         const val MAX_ROWS = 15
 

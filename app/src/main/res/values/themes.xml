@@ -1,26 +1,48 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. Black by default, independent of the wallpaper. -->
-    <style name="Theme.TVLauncher" parent="Theme.AppCompat.NoActionBar">
+    <!-- Base application theme. Black by default, independent of the wallpaper.
+         Material Components gives every menu/widget the Material design (item 13). -->
+    <style name="Theme.TVLauncher" parent="Theme.MaterialComponents.NoActionBar">
         <item name="android:windowBackground">@color/bg_main</item>
         <item name="android:colorBackground">@color/bg_main</item>
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
         <item name="colorAccent">@color/accent</item>
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorPrimaryVariant">@color/accent</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="colorSecondaryVariant">@color/accent</item>
     </style>
 
-    <style name="Theme.TVLauncher.AboutDialog" parent="Theme.AppCompat.Dialog.Alert">
-        <item name="android:windowBackground">@color/dialog_bg</item>
+    <style name="Theme.TVLauncher.AboutDialog" parent="Theme.MaterialComponents.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/dialog_material_bg</item>
         <item name="android:colorBackground">@color/dialog_bg</item>
         <item name="android:textColor">@color/text_primary</item>
         <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_secondary</item>
         <item name="android:textColorAlertDialogListItem">@color/text_primary</item>
         <item name="colorAccent">@color/accent</item>
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorPrimaryVariant">@color/accent</item>
+        <item name="colorSecondary">@color/accent</item>
+        <item name="colorSecondaryVariant">@color/accent</item>
         <item name="colorControlNormal">@color/text_secondary</item>
         <item name="colorControlActivated">@color/accent</item>
+        <!-- Material buttons: the positive action highlighted with the accent, the others grey. -->
+        <item name="android:buttonBarPositiveButtonStyle">@style/TV.DialogPositiveButton</item>
+        <item name="android:buttonBarNegativeButtonStyle">@style/TV.DialogNegativeButton</item>
+        <item name="android:buttonBarNeutralButtonStyle">@style/TV.DialogNegativeButton</item>
         <!-- Keeps the dialogs narrow and centered on TV instead of stretching edge to edge. -->
         <item name="android:windowMinWidthMajor">42%</item>
         <item name="android:windowMinWidthMinor">42%</item>
         <item name="android:backgroundDimAmount">0.72</item>
+    </style>
+
+    <style name="TV.DialogPositiveButton" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/accent</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TV.DialogNegativeButton" parent="Widget.MaterialComponents.Button.TextButton.Dialog">
+        <item name="android:textColor">@color/text_secondary</item>
     </style>
 </resources>
