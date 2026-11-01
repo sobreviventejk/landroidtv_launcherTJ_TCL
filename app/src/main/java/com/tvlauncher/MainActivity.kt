@@ -304,9 +304,9 @@ class MainActivity : AppCompatActivity() {
                 cause = cause.cause
                 depth++
             }
-            val text = detail.toString()
+            val trace = detail.toString()
             CrashLog.log(this, "STARTUP CRASH: ${crash.javaClass.name}: ${crash.message ?: "-"}")
-            saveCrashExternal(text)
+            saveCrashExternal(trace)
 
             val density = resources.displayMetrics.density
             val scroll = ScrollView(this).apply {
@@ -323,8 +323,8 @@ class MainActivity : AppCompatActivity() {
                 textSize = 11f
                 setTextColor(0xFFFF8A80.toInt())
                 setTextIsSelectable(false)
-                text = "ERRO DE INICIO DO LAUNCHER\n\n" +
-                    text +
+                this@apply.text = "ERRO DE INICIO DO LAUNCHER\n\n" +
+                    trace +
                     "\n\nFotografe esta tela e envie ao suporte.\n" +
                     "O log tambem esta em Android/data/com.tvlauncher/files/last_crash.txt"
             }
